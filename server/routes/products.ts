@@ -8,6 +8,7 @@ import {
   getCustomizeConfig,
   getPublicCollections,
   getPublicLayouts,
+  getSimilarProducts,
   getHomepageData
 } from "../controllers/productController.ts";
 
@@ -21,6 +22,7 @@ router.get("/pricing", getProductPricing);
 router.get("/customize-config", getCustomizeConfig);
 router.get("/collections", getPublicCollections);
 router.get("/layouts", getPublicLayouts);
+router.get("/:id/similar", getSimilarProducts);
 router.get("/homepage", getHomepageData);
 
 export default router;

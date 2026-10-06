@@ -1,6 +1,15 @@
 import { Request, Response } from "express";
 import pool from "../config/db.ts";
 
+const productPriceSQL = `
+  (
+    SELECT MIN(pr.price)
+    FROM pricing pr
+    WHERE pr.size_id = ANY(p.available_sizes)
+      AND pr.layout_id = ANY(p.available_layouts)
+  ) AS price
+`;
+
 export const getProducts = async (req: Request, res: Response) => {
   try {
     const { filter, limit } = req.query;
@@ -12,14 +21,19 @@ export const getProducts = async (req: Request, res: Response) => {
 
     const limitNum = limit ? Math.min(parseInt(limit as string, 10) || 100, 100) : 100;
 
-    const { rows } = await pool.query(`
-      SELECT p.*, c.name as collection_name, c.slug as collection_slug
-      FROM products p
-      LEFT JOIN collections c ON p.collection_id = c.id
-      ${where}
-      ORDER BY p.created_at DESC
-      LIMIT $1
-    `, [limitNum]);
+   const { rows } = await pool.query(`
+        SELECT
+          p.*,
+          c.name AS collection_name,
+          c.slug AS collection_slug,
+          ${productPriceSQL}
+
+        FROM products p
+        LEFT JOIN collections c ON p.collection_id = c.id
+        ${where}
+        ORDER BY p.created_at DESC
+        LIMIT $1
+      `, [limitNum]);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch products" });
@@ -110,7 +124,7 @@ export const getSimilarProducts = async (req: Request, res: Response) => {
     }
 
     const limit = Math.min(
-      parseInt(req.query.limit as string, 10) || 8,
+      parseInt(req.query.limit as string, 10) || 6,
       20
     );
 
@@ -119,8 +133,7 @@ export const getSimilarProducts = async (req: Request, res: Response) => {
       WITH current_product AS (
         SELECT
           id,
-          collection_id,
-          tags
+          SPLIT_PART(image_folder, '/', 3) AS category
         FROM products
         WHERE id = $1
           AND status = 'active'
@@ -131,30 +144,12 @@ export const getSimilarProducts = async (req: Request, res: Response) => {
         c.name AS collection_name,
         c.slug AS collection_slug,
 
-        -- Number of tags shared with current product
-        cardinality(
-          ARRAY(
-            SELECT UNNEST(p.tags)
-            INTERSECT
-            SELECT UNNEST(cp.tags)
-          )
-        ) AS matching_tags,
-
-        -- Final similarity score
         (
-          cardinality(
-            ARRAY(
-              SELECT UNNEST(p.tags)
-              INTERSECT
-              SELECT UNNEST(cp.tags)
-            )
-          ) * 10
-          +
-          CASE
-            WHEN p.collection_id = cp.collection_id THEN 3
-            ELSE 0
-          END
-        ) AS similarity_score
+          SELECT MIN(pr.price)
+          FROM pricing pr
+          WHERE pr.size_id = ANY(p.available_sizes)
+            AND pr.layout_id = ANY(p.available_layouts)
+        ) AS price
 
       FROM products p
 
@@ -163,16 +158,12 @@ export const getSimilarProducts = async (req: Request, res: Response) => {
       LEFT JOIN collections c
         ON p.collection_id = c.id
 
-      WHERE p.id <> cp.id
+      WHERE
+        p.id <> cp.id
         AND p.status = 'active'
-
-        -- Product must share at least one tag
-        AND p.tags && cp.tags
+        AND SPLIT_PART(p.image_folder, '/', 3) = cp.category
 
       ORDER BY
-        similarity_score DESC,
-        p.is_featured DESC,
-        p.is_trending DESC,
         p.created_at DESC
 
       LIMIT $2
@@ -191,7 +182,6 @@ export const getSimilarProducts = async (req: Request, res: Response) => {
 };
 
 export const getTrendingProducts = async (req: Request, res: Response) => {
-  
   try {
     const limit = Math.min(
       parseInt(req.query.limit as string, 10) || 8,
@@ -204,22 +194,38 @@ export const getTrendingProducts = async (req: Request, res: Response) => {
         p.*,
         c.name AS collection_name,
         c.slug AS collection_slug,
-        COUNT(e.id) AS popularity_score
-      FROM product_order_events e
-      JOIN products p
-        ON p.id = e.product_id
+        ${productPriceSQL},
+
+        COUNT(e.id) FILTER (
+          WHERE e.created_at >= NOW() - INTERVAL '7 days'
+        ) AS popularity_score
+
+      FROM products p
+
+      LEFT JOIN product_order_events e
+        ON e.product_id = p.id
+        AND e.created_at >= NOW() - INTERVAL '7 days'
+
       LEFT JOIN collections c
         ON p.collection_id = c.id
+
       WHERE
         p.status = 'active'
-        AND e.created_at >= NOW() - INTERVAL '7 days'
+        AND (
+          p.is_trending = true
+          OR e.id IS NOT NULL
+        )
+
       GROUP BY
         p.id,
         c.name,
         c.slug
+
       ORDER BY
         popularity_score DESC,
+        p.is_trending DESC,
         p.created_at DESC
+
       LIMIT $1
       `,
       [limit]
@@ -242,40 +248,41 @@ export const getNewArrivals = async (req: Request, res: Response) => {
       20
     );
 
-    const { rows } = await pool.query(
-      `
-      SELECT *
-      FROM (
-        SELECT
-          p.*,
-          c.name AS collection_name,
-          c.slug AS collection_slug,
+const { rows } = await pool.query(
+  `
+  SELECT *
+  FROM (
+    SELECT
+      p.*,
+      c.name AS collection_name,
+      c.slug AS collection_slug,
+      ${productPriceSQL},
 
-          SPLIT_PART(p.image_folder, '/', 3) AS category,
+      SPLIT_PART(p.image_folder, '/', 3) AS category,
 
-          ROW_NUMBER() OVER (
-            PARTITION BY SPLIT_PART(p.image_folder, '/', 3)
-            ORDER BY p.created_at DESC
-          ) AS row_num
+      ROW_NUMBER() OVER (
+        PARTITION BY SPLIT_PART(p.image_folder, '/', 3)
+        ORDER BY p.created_at DESC
+      ) AS row_num
 
-        FROM products p
+    FROM products p
 
-        LEFT JOIN collections c
-          ON p.collection_id = c.id
+    LEFT JOIN collections c
+      ON p.collection_id = c.id
 
-        WHERE
-          p.status = 'active'
-          AND p.image_folder IS NOT NULL
-      ) ranked
+    WHERE
+      p.status = 'active'
+      AND p.image_folder IS NOT NULL
+  ) ranked
 
-      WHERE row_num = 1
+  WHERE row_num = 1
 
-      ORDER BY created_at DESC
+  ORDER BY created_at DESC
 
-      LIMIT $1
-      `,
-      [limit]
-    );
+  LIMIT $1
+  `,
+  [limit]
+);
 
     res.json(rows);
   } catch (err) {
@@ -303,18 +310,43 @@ export const getBestsellerProducts = async (
         p.*,
         c.name AS collection_name,
         c.slug AS collection_slug,
-        COUNT(e.id) AS popularity_score
-      FROM product_order_events e
+        ${productPriceSQL},
 
-      JOIN products p
-        ON p.id = e.product_id
+        COALESCE(
+          SUM(
+            CASE
+              WHEN o.id IS NOT NULL
+              THEN COALESCE((item->>'quantity')::int, 1)
+              ELSE 0
+            END
+          ),
+          0
+        ) AS popularity_score
+
+      FROM products p
 
       LEFT JOIN collections c
         ON p.collection_id = c.id
 
+      LEFT JOIN orders o
+        ON o.status != 'cancelled'
+        AND o.created_at >= DATE_TRUNC('month', CURRENT_TIMESTAMP)
+
+      LEFT JOIN LATERAL jsonb_array_elements(o.items) AS item
+        ON (
+          (item->>'productId' IS NOT NULL
+            AND (item->>'productId')::bigint = p.id)
+          OR
+          (item->>'id' IS NOT NULL
+            AND (item->>'id')::bigint = p.id)
+        )
+
       WHERE
         p.status = 'active'
-        AND e.created_at >= DATE_TRUNC('month', CURRENT_TIMESTAMP)
+        AND (
+          p.is_bestseller = true
+          OR item IS NOT NULL
+        )
 
       GROUP BY
         p.id,
@@ -323,6 +355,7 @@ export const getBestsellerProducts = async (
 
       ORDER BY
         popularity_score DESC,
+        p.is_bestseller DESC,
         p.created_at DESC
 
       LIMIT $1

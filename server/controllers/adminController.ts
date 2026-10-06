@@ -24,7 +24,7 @@ const validateNonNegativeNum = (val: any): number | null => {
   return (!isNaN(n) && n >= 0) ? n : null;
 };
 
-const sanitizeText = (val: any, maxLen = 500): string => {
+export const sanitizeText = (val: any, maxLen = 500): string => {
   if (!val || typeof val !== 'string') return '';
   return val.trim().slice(0, maxLen);
 };

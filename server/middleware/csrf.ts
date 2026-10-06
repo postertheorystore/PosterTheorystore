@@ -11,15 +11,20 @@ const getCsrfSecret = () => {
 
 const { generateCsrfToken, doubleCsrfProtection } = doubleCsrf({
   getSecret: () => getCsrfSecret(),
-  getSessionIdentifier: (req) => req.ip || "anonymous",
+
+  getSessionIdentifier: () => "anonymous",
+
   cookieName: "__csrf",
+
   cookieOptions: {
     httpOnly: true,
     sameSite: "strict",
     secure: process.env.NODE_ENV === "production",
     path: "/",
   },
-  getCsrfTokenFromRequest: (req: Request) => req.headers["x-csrf-token"] as string,
+
+  getCsrfTokenFromRequest: (req: Request) =>
+    req.headers["x-csrf-token"] as string,
 });
 
 // Endpoint to get CSRF token

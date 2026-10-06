@@ -22,7 +22,15 @@ import exportRoutes from "./server/routes/export.ts";
 import adminRoutes from "./server/routes/admin.ts";
 import { trackVisit } from "./server/controllers/analyticsController.ts";
 import { initStorage } from "./server/config/initStorage.ts";
+import { authenticateToken } from "./server/middleware/authMiddleware.ts";
 import favourites from "./server/routes/favourites.ts";
+import couponRoutes from "./server/routes/coupons.ts";
+import saleRoutes from "./server/routes/sales.ts";
+
+
+// Cashfree
+import paymentRoutes from "./server/routes/payment.ts";
+import { cashfreeWebhook } from "./server/controllers/Paymentcontroller.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,7 +48,13 @@ async function startServer() {
   // Disable X-Powered-By
   app.disable('x-powered-by');
 
-  app.use(express.json({ limit: '50mb' }));
+  app.post(
+  "/api/payments/webhook",
+  express.raw({ type: "application/json" }),
+  cashfreeWebhook
+  );
+
+  app.use(express.json({ limit: "50mb" }));
   app.use(cookieParser());
 
   // SSRF protection — block internal URLs in request bodies
@@ -56,7 +70,9 @@ async function startServer() {
   // Exempt paths are handled before this middleware.
   const csrfExemptPaths = ['/api/auth', '/api/track-visit'];
   app.use((req, res, next) => {
-    if (csrfExemptPaths.some(p => req.path.startsWith(p))) return next();
+    if (csrfExemptPaths.some(p => req.path === p || req.path.startsWith(`${p}/`))) {
+  return next();
+}
     return csrfProtection(req, res, next);
   });
 
@@ -70,6 +86,19 @@ async function startServer() {
   app.use("/api/export", exportRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/profile/favourites", favourites);
+  
+
+
+  app.post("/api/coupons/test", (req, res) => {
+  res.json({
+    message: "Coupon route is working"
+  });
+});
+  app.use("/api/coupons", couponRoutes);
+  app.use("/api/sales", saleRoutes);
+
+  //Cashfree
+  app.use("/api/payments",  authenticateToken, paymentRoutes);
 
   // Public analytics tracking (exempt from CSRF — non-sensitive, fire-and-forget)
   app.post("/api/track-visit", trackVisit);

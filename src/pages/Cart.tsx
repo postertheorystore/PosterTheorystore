@@ -1,10 +1,10 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
-import { Trash2, ShoppingBag, CreditCard, MapPin, CheckCircle } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Trash2, ShoppingBag, CreditCard, MapPin } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import api from '../lib/api';
-import { getImage } from '../lib/imageDB';
+import { saveCheckoutAddressId } from '../lib/checkout';
 
 interface Address {
   id: number;
@@ -18,26 +18,35 @@ interface Address {
 }
 
 export default function Cart() {
-  const { cart, cartLoading, removeFromCart, updateQuantity, total, clearCart } = useCart();
+  const { cart, cartLoading, removeFromCart, updateQuantity, total } = useCart();
   const { user, token } = useAuth();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<'cart' | 'address' | 'confirm' | 'success'>('cart');
+  const location = useLocation();
+  const [step, setStep] = useState<'cart' | 'address' | 'confirm'>('cart');
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
   const [profileError, setProfileError] = useState('');
-  const [orderId, setOrderId] = useState<number | null>(null);
 
-  const fetchAddresses = async () => {
+  const fetchAddresses = async (preferredId?: number | null) => {
     if (!token) return;
     try {
       const res = await api.get('/api/profile/addresses', { headers: { Authorization: `Bearer ${token}` } });
       setAddresses(res.data);
+      const preferred = preferredId ? res.data.find((a: Address) => a.id === preferredId) : null;
       const defaultAddr = res.data.find((a: Address) => a.is_default);
-      if (defaultAddr) setSelectedAddressId(defaultAddr.id);
+      if (preferred) setSelectedAddressId(preferred.id);
+      else if (defaultAddr) setSelectedAddressId(defaultAddr.id);
       else if (res.data.length > 0) setSelectedAddressId(res.data[0].id);
     } catch (err) { console.error(err); }
   };
+
+  // Coming back from /payment ("Change address" / "Back to review"): reopen the right step.
+  useEffect(() => {
+    const state = location.state as { resumeStep?: 'address' | 'confirm'; addressId?: number } | null;
+    if (!state?.resumeStep || !token) return;
+    fetchAddresses(state.addressId).then(() => setStep(state.resumeStep === 'address' ? 'address' : 'confirm'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   const handleProceedToAddress = async () => {
       if (!user) {
@@ -64,64 +73,13 @@ export default function Cart() {
     }
   };
 
-  const handleConfirmOrder = async () => {
+  // The order is no longer created here. It is created server-side when the customer
+  // presses PAY NOW on the payment page, after the amount has been re-priced on the server.
+  const handleProceedToPayment = () => {
     if (!selectedAddressId) return;
-    setLoading(true);
-    try {
-      // Retrieve full-res images from IndexedDB for upload
-      const itemsWithFullImages = await Promise.all(
-        cart.map(async (item) => {
-          const fullImage = await getImage(item.cartItemId);
-          return { ...item, image: fullImage || item.image };
-        })
-      );
-
-      const res = await api.post('/api/orders', {
-        total,
-        items: itemsWithFullImages,
-        address_id: selectedAddressId,
-      }, { headers: { Authorization: `Bearer ${token}` } });
-
-      setOrderId(res.data.id);
-      clearCart();
-      setStep('success');
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Order failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    saveCheckoutAddressId(selectedAddressId);
+    navigate('/payment', { state: { addressId: selectedAddressId } });
   };
-
-  if (step === 'success') {
-    return (
-      <div className="pt-24 sm:pt-40 pb-32 min-h-screen flex items-center justify-center">
-        <div className="max-w-lg w-full px-6 text-center">
-          <div className="w-20 h-20 bg-green-100 border-2 border-green-500 rounded-full flex items-center justify-center mx-auto mb-8">
-            <CheckCircle className="w-10 h-10 text-green-600" />
-          </div>
-          <h2 className="font-display font-black text-5xl uppercase tracking-tighter mb-4 text-z-ink">Order Confirmed!</h2>
-          <p className="font-mono text-[12px] text-z-muted uppercase tracking-widest mb-2">ORDER REF: STUDIO-{orderId}</p>
-          <p className="font-mono text-[11px] text-z-muted uppercase mb-8">Your posters are being prepared for dispatch.</p>
-
-          {/* Cancellation Policy */}
-          <div className="text-left border-2 border-amber-400 bg-amber-50 p-5 mb-10">
-            <p className="text-[11px] font-mono font-black uppercase text-amber-800 mb-2">&#9888; Cancellation Policy</p>
-            <ul className="text-[10px] font-mono text-amber-700 leading-relaxed space-y-1 list-disc pl-4">
-              <li>You can cancel your order before it enters <span className="font-black">In Production</span>.</li>
-              <li>Once production begins, cancellation is <span className="font-black">not available</span>.</li>
-              <li>For post-production issues, please contact our support team.</li>
-            </ul>
-            <p className="text-[10px] font-mono text-amber-700 mt-3">Support: <span className="font-black">support@postertheory.com</span></p>
-          </div>
-
-          <div className="flex gap-4 justify-center">
-            <Link to="/dashboard" className="sticker-btn bg-z-ink text-z-paper">View Orders</Link>
-            <Link to="/collection" className="sticker-btn">Continue Shopping</Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (cartLoading) {
   return (
@@ -364,8 +322,8 @@ export default function Cart() {
 
               <div className="flex gap-4">
                 <button onClick={() => setStep('address')} className="px-8 py-4 border-2 border-z-border font-display font-bold uppercase hover:bg-z-ink hover:text-z-paper transition-all">Back</button>
-                <button onClick={handleConfirmOrder} disabled={loading} className="sticker-btn py-4 bg-z-ink text-z-paper flex-1 text-center text-lg">
-                  {loading ? 'PLACING ORDER...' : 'PLACE ORDER'}
+                <button onClick={handleProceedToPayment} disabled={!selectedAddressId} className="sticker-btn py-4 bg-z-ink text-z-paper flex-1 text-center text-lg">
+                  PROCEED TO PAYMENT
                 </button>
               </div>
             </div>
@@ -375,6 +333,3 @@ export default function Cart() {
     </div>
   );
 }
-
-
-

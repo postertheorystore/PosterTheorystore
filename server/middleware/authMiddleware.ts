@@ -15,11 +15,25 @@ export interface AuthRequest extends Request {
   };
 }
 
-export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+export const authenticateToken = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  console.log("🔐 AUTH HEADER RECEIVED BY SERVER:", req.headers.authorization);
+  console.log("📋 ALL HEADERS:", req.headers);
 
-  if (!token) return res.status(401).json({ error: "Access denied", code: "NO_TOKEN" });
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({
+      error: "Access denied",
+      code: "NO_TOKEN",
+    });
+  }
+
+
 
   try {
     const verified = jwt.verify(token, getJwtSecret()) as any;

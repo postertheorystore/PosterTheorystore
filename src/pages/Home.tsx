@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import api from '../lib/api';
 import { Link } from 'react-router-dom';
 import Hero from '../components/Hero';
+import SaleAnnouncement from '../components/SaleAnnouncement';
 import ProductCard from '../components/ProductCard';
 import Collections from '../components/Collections';
 import PosterLayouts from '../components/PosterLayouts';
@@ -286,7 +287,8 @@ useEffect(() => {
   return (
     <div className=" sm:pt-20">
       <Hero />
-     
+      <SaleAnnouncement />
+ 
 
       {/* Shop by Collection — Marquee */}
       {collections.length > 0 && (

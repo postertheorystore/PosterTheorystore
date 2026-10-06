@@ -19,6 +19,14 @@ import {
 } from "../controllers/adminController.ts";
 import { getAnalytics } from "../controllers/analyticsController.ts";
 
+import {
+  getSales,
+  getSaleById,
+  createSale,
+  updateSale,
+  deleteSale,
+} from "../controllers/saleController.ts";
+
 const router = Router();
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -32,6 +40,7 @@ const upload = multer({
 
 // All routes require admin auth
 router.use(authenticateToken, isAdmin);
+
 
 // Dashboard
 router.get("/dashboard", getDashboard);
@@ -110,5 +119,12 @@ router.delete("/frame-pricing/:id", deleteFramePricing);
 // Material Pricing
 router.get("/material-pricing", getMaterialPricing);
 router.post("/material-pricing", upsertMaterialPricing);
+
+// Sales
+router.get("/sales", getSales);
+router.get("/sales/:id", getSaleById);
+router.post("/sales", createSale);
+router.put("/sales/:id", updateSale);
+router.delete("/sales/:id", deleteSale);
 
 export default router;

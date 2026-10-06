@@ -1,6 +1,5 @@
-﻿
-import React, { useState } from "react";
-import { motion } from "motion/react";
+﻿import React, { useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import { Heart, ShoppingBag, Eye } from "lucide-react";
 import { Link } from "react-router-dom";
 import ProductModal from "./ProductModal";
@@ -36,11 +35,13 @@ export default function ProductCard(props: ProductProps) {
     frameColor,
   } = props;
 
-  const [showModal, setShowModal] = useState(false);
+  // The product currently shown in the drawer (null = closed).
+  // Starts as this card's product; a "You May Also Like" click replaces it.
+  const [modalProduct, setModalProduct] = useState<any | null>(null);
   const { isFavourite, toggleFavourite } = useWishlist();
 
   const liked = isFavourite(id);
-  const displayPrice = price ?? 0;
+  const displayPrice = price;
 
   const hasFrame = frameColor === "black" || frameColor === "white";
 
@@ -54,6 +55,8 @@ export default function ProductCard(props: ProductProps) {
           backgroundColor: "#1a1a1a",
           borderColor: "#111111",
         };
+
+  const openModal = () => setModalProduct(props);
 
   return (
     <>
@@ -108,7 +111,7 @@ export default function ProductCard(props: ProductProps) {
             <div
               onClick={(e) => {
                 e.stopPropagation();
-                setShowModal(true);
+                openModal();
               }}
               className="relative w-full h-full overflow-hidden bg-white cursor-pointer"
             >
@@ -135,7 +138,7 @@ export default function ProductCard(props: ProductProps) {
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setShowModal(true);
+                  openModal();
                 }}
                 className="absolute left-1/2 bottom-5 -translate-x-1/2 translate-y-4 opacity-0 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-400 bg-z-paper text-z-ink border border-z-border px-5 py-2.5 flex items-center gap-2 font-mono text-[9px] font-bold uppercase tracking-[0.15em] whitespace-nowrap shadow-[3px_3px_0px_0px_var(--color-z-shadow)]"
               >
@@ -172,7 +175,7 @@ export default function ProductCard(props: ProductProps) {
           <div className="flex items-end justify-between gap-3 mt-4">
             <div>
               <p className="font-display font-black text-lg sm:text-xl text-z-ink leading-none">
-                ₹{displayPrice}
+                {displayPrice != null ? `From ₹${displayPrice}` : "Price unavailable"}
               </p>
 
               {available_sizes && available_sizes.length > 0 && (
@@ -185,7 +188,7 @@ export default function ProductCard(props: ProductProps) {
             {/* Add to Cart */}
             <button
               type="button"
-              onClick={() => setShowModal(true)}
+              onClick={openModal}
               className="flex items-center justify-center gap-2 bg-z-ink text-z-paper px-3 sm:px-4 py-2.5 font-mono text-[8px] sm:text-[9px] font-bold uppercase tracking-[0.15em] border border-z-ink hover:bg-transparent hover:text-z-ink transition-all duration-300"
             >
               <ShoppingBag className="w-3.5 h-3.5" />
@@ -202,13 +205,17 @@ export default function ProductCard(props: ProductProps) {
         </div>
       </motion.article>
 
-      {showModal && (
-        <ProductModal
-          product={props}
-          onClose={() => setShowModal(false)}
-        />
-      )}
+      {/* AnimatePresence lets the drawer play its slide-down exit before unmounting */}
+      <AnimatePresence>
+        {modalProduct && (
+          <ProductModal
+            key="product-drawer"
+            product={modalProduct}
+            onClose={() => setModalProduct(null)}
+            onProductSelect={(item) => setModalProduct(item)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }
-

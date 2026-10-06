@@ -39,6 +39,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import MetallicPosters from './pages/Metallicposters ';
 import Help from './pages/Help';
 import Frames from './pages/Frames';
+import Payment from "./pages/Payment";
 
 
 const ProtectedRoute = ({
@@ -182,6 +183,8 @@ function AppContent() {
               path="/forgot-password"
               element={<ForgotPassword />}
             />
+
+            <Route path="/payment" element={<Payment />} />
 
             <Route
               path="/dashboard"

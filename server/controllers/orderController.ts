@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import pool from "../config/db.ts";
-import { createOrderSchema } from "../validators/schemas.ts";
 import cloudinary from "../config/cloudinary.ts";
 
 const uploadBase64ToCloudinary = async (base64: string, userId: number): Promise<string> => {
@@ -12,146 +11,152 @@ const uploadBase64ToCloudinary = async (base64: string, userId: number): Promise
   return result.secure_url;
 };
 
-export const createOrder = async (req: any, res: Response) => {
-  const parsed = createOrderSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.issues[0].message });
+export type PrepareOrderResult =
+  | { ok: true; serverTotal: number; processedItems: any[] }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Existing order validation + server-side pricing, extracted unchanged from the
+ * old createOrder so the payment flow can reuse it.
+ *
+ *  - uploadImages: false  -> "quote" mode. Validates and prices only (cheap, no Cloudinary).
+ *  - uploadImages: true   -> also uploads base64 custom images to Cloudinary.
+ *
+ * NOTE: catalog (non-custom) items still use the client-supplied price, exactly as
+ * before. See the notes delivered with this change.
+ */
+export const prepareOrder = async (
+  user_id: number,
+  items: any,
+  address_id: number,
+  opts: { uploadImages: boolean } = { uploadImages: true }
+): Promise<PrepareOrderResult> => {
+  const fail = (status: number, error: string): PrepareOrderResult => ({ ok: false, status, error });
+
+  // Verify profile is complete
+  const userResult = await pool.query("SELECT name, phone FROM users WHERE id = $1", [user_id]);
+  const user = userResult.rows[0];
+  if (!user?.name || !user?.phone) {
+    return fail(400, "Please complete your profile (name and phone) before placing an order.");
   }
 
-  const { items, address_id } = parsed.data;
-  const user_id = req.user.id;
+  // Verify address belongs to user
+  const addrResult = await pool.query("SELECT id FROM addresses WHERE id = $1 AND user_id = $2", [address_id, user_id]);
+  if (!addrResult.rows[0]) {
+    return fail(400, "Invalid delivery address.");
+  }
 
-  try {
-    // Verify profile is complete
-    const userResult = await pool.query("SELECT name, phone FROM users WHERE id = $1", [user_id]);
-    const user = userResult.rows[0];
-    if (!user?.name || !user?.phone) {
-      return res.status(400).json({ error: "Please complete your profile (name and phone) before placing an order." });
-    }
+  // Load pricing from DB to calculate total server-side (prevent price tampering)
+  const { rows: pricingRows } = await pool.query(`
+    SELECT p.price, s.name as size_name, l.name as layout_name
+    FROM pricing p
+    JOIN sizes s ON p.size_id = s.id
+    JOIN layouts l ON p.layout_id = l.id
+  `);
+  const pricingMap: Record<string, number> = {};
+  for (const row of pricingRows) {
+    pricingMap[`${row.size_name}-${row.layout_name}`] = row.price;
+  }
 
-    // Verify address belongs to user
-    const addrResult = await pool.query("SELECT id FROM addresses WHERE id = $1 AND user_id = $2", [address_id, user_id]);
-    if (!addrResult.rows[0]) {
-      return res.status(400).json({ error: "Invalid delivery address." });
-    }
+  // Load frame + material pricing
+  const { rows: framePricingRows } = await pool.query('SELECT size_name, price FROM frame_pricing');
+  const framePricingMap: Record<string, number> = {};
+  for (const row of framePricingRows) framePricingMap[row.size_name] = row.price;
 
-    // Load pricing from DB to calculate total server-side (prevent price tampering)
-    const { rows: pricingRows } = await pool.query(`
-      SELECT p.price, s.name as size_name, l.name as layout_name
-      FROM pricing p
-      JOIN sizes s ON p.size_id = s.id
-      JOIN layouts l ON p.layout_id = l.id
-    `);
-    const pricingMap: Record<string, number> = {};
-    for (const row of pricingRows) {
-      pricingMap[`${row.size_name}-${row.layout_name}`] = row.price;
-    }
+  const { rows: materialPricingRows } = await pool.query('SELECT material, extra_price FROM material_pricing');
+  const materialPricingMap: Record<string, number> = {};
+  for (const row of materialPricingRows) materialPricingMap[row.material] = row.extra_price;
 
-    // Load frame + material pricing
-    const { rows: framePricingRows } = await pool.query('SELECT size_name, price FROM frame_pricing');
-    const framePricingMap: Record<string, number> = {};
-    for (const row of framePricingRows) framePricingMap[row.size_name] = row.price;
+  // Validate and recalculate prices server-side
+  const parsedItems = Array.isArray(items) ? items : JSON.parse(items);
+  if (!parsedItems.length || parsedItems.length > 50) {
+    return fail(400, "Invalid number of items.");
+  }
 
-    const { rows: materialPricingRows } = await pool.query('SELECT material, extra_price FROM material_pricing');
-    const materialPricingMap: Record<string, number> = {};
-    for (const row of materialPricingRows) materialPricingMap[row.material] = row.extra_price;
-
-    // Validate and recalculate prices server-side
-    const parsedItems = Array.isArray(items) ? items : JSON.parse(items);
-    if (!parsedItems.length || parsedItems.length > 50) {
-      return res.status(400).json({ error: "Invalid number of items." });
-    }
-
-    let serverTotal = 0;
-    const processedItems = [];
-    for (const item of parsedItems) {
-      // Non-custom catalog items: trust client price (no customSpecs)
-      if (!item.isCustom || !item.customSpecs) {
-        const qty = Math.max(1, Math.min(100, parseInt(item.quantity) || 1));
-        const price = Math.max(0, parseFloat(item.price) || 0);
-        serverTotal += price * qty;
-        processedItems.push({ ...item, price, quantity: qty });
-        continue;
-      }
-
-      const size = item.customSpecs?.size;
-      const layout = item.customSpecs?.layout;
-      if (!size || !layout) {
-        return res.status(400).json({ error: `Item "${item.title || 'Unknown'}" is missing size/layout info.` });
-      }
-      const key = `${size}-${layout}`;
-      const basePrice = pricingMap[key] ?? Object.entries(pricingMap)
-        .filter(([k]) => k.startsWith(`${size}-`))
-        .reduce((min, [, v]) => (v < min ? v : min), Infinity);
-      if (!basePrice || basePrice <= 0 || basePrice === Infinity) {
-        console.error(`Price lookup failed: key=${key}, available keys:`, Object.keys(pricingMap));
-        return res.status(400).json({ error: `No valid price found for ${size} - ${layout}. Please re-add to cart.` });
-      }
-      const frameOption = item.customSpecs?.frame;
-      const material = item.customSpecs?.material || 'PAPER';
-      const frameCost = (frameOption && frameOption !== 'None') ? (framePricingMap[size] || 0) : 0;
-      const materialExtra = materialPricingMap[material] ?? 0;
-      const verifiedPrice = basePrice + frameCost + materialExtra;
+  let serverTotal = 0;
+  const processedItems = [];
+  for (const item of parsedItems) {
+    // Non-custom catalog items: trust client price (no customSpecs)
+    if (!item.isCustom || !item.customSpecs) {
       const qty = Math.max(1, Math.min(100, parseInt(item.quantity) || 1));
-      serverTotal += verifiedPrice * qty;
-
-      let image = item.image;
-      if (image && image.startsWith('data:')) {
-        image = await uploadBase64ToCloudinary(image, user_id);
-      }
-      processedItems.push({ ...item, image, price: verifiedPrice, quantity: qty });
+      const price = Math.max(0, parseFloat(item.price) || 0);
+      serverTotal += price * qty;
+      processedItems.push({ ...item, price, quantity: qty });
+      continue;
     }
 
-    if (serverTotal <= 0) {
-      return res.status(400).json({ error: "Invalid order total. Please try again." });
+    const size = item.customSpecs?.size;
+    const layout = item.customSpecs?.layout;
+    if (!size || !layout) {
+      return fail(400, `Item "${item.title || 'Unknown'}" is missing size/layout info.`);
     }
+    const key = `${size}-${layout}`;
+    const basePrice = pricingMap[key] ?? Object.entries(pricingMap)
+      .filter(([k]) => k.startsWith(`${size}-`))
+      .reduce((min, [, v]) => (v < min ? v : min), Infinity);
+    if (!basePrice || basePrice <= 0 || basePrice === Infinity) {
+      console.error(`Price lookup failed: key=${key}, available keys:`, Object.keys(pricingMap));
+      return fail(400, `No valid price found for ${size} - ${layout}. Please re-add to cart.`);
+    }
+    const frameOption = item.customSpecs?.frame;
+    const material = item.customSpecs?.material || 'PAPER';
+    const frameCost = (frameOption && frameOption !== 'None') ? (framePricingMap[size] || 0) : 0;
+    const materialExtra = materialPricingMap[material] ?? 0;
+    const verifiedPrice = basePrice + frameCost + materialExtra;
+    const qty = Math.max(1, Math.min(100, parseInt(item.quantity) || 1));
+    serverTotal += verifiedPrice * qty;
 
-    const { rows } = await pool.query(
-  "INSERT INTO orders (user_id, total, status, items, address_id) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-  [user_id, serverTotal, "order_placed", JSON.stringify(processedItems), address_id]
-);
-
-const order = rows[0];
-
-console.log("========== POPULARITY DEBUG ==========");
-console.log("Created order ID:", order.id);
-console.log("Processed items:", JSON.stringify(processedItems, null, 2));
-
-const productIds = [
-  ...new Set(
-    processedItems
-      .filter((item: any) => !item.isCustom && item.id)
-      .map((item: any) => Number(item.id))
-      .filter((id: number) => Number.isInteger(id) && id > 0)
-  )
-];
-
-console.log("Product IDs:", productIds);
-
-for (const productId of productIds) {
-  console.log("Trying to create event for product:", productId);
-
-  const result = await pool.query(
-    `INSERT INTO product_order_events (product_id, order_id, user_id)
-     SELECT id, $2, $3
-     FROM products
-     WHERE id = $1
-       AND status = 'active'
-     ON CONFLICT (order_id, product_id) DO NOTHING
-     RETURNING *`,
-    [productId, order.id, user_id]
-  );
-
-  console.log("Event insert result:", result.rows);
-}
-
-console.log("========== END POPULARITY DEBUG ==========");
-
-res.status(201).json(order);
-  } catch (err) {
-    console.error("Create order error:", err);
-    res.status(500).json({ error: "Failed to create order" });
+    let image = item.image;
+    if (opts.uploadImages && image && image.startsWith('data:')) {
+      image = await uploadBase64ToCloudinary(image, user_id);
+    }
+    processedItems.push({ ...item, image, price: verifiedPrice, quantity: qty });
   }
+
+  if (serverTotal <= 0) {
+    return fail(400, "Invalid order total. Please try again.");
+  }
+
+  return { ok: true, serverTotal, processedItems };
+};
+
+/**
+ * Popularity events (previously created at order creation).
+ * Now called only once an order is confirmed PAID, so abandoned checkouts
+ * don't inflate product popularity.
+ */
+export const recordProductOrderEvents = async (orderId: number, userId: number, processedItems: any[]) => {
+  const productIds = [
+    ...new Set(
+      processedItems
+        .filter((item: any) => !item.isCustom && item.id)
+        .map((item: any) => Number(item.id))
+        .filter((id: number) => Number.isInteger(id) && id > 0)
+    ),
+  ];
+
+  for (const productId of productIds) {
+    await pool.query(
+      `INSERT INTO product_order_events (product_id, order_id, user_id)
+       SELECT id, $2, $3
+       FROM products
+       WHERE id = $1
+         AND status = 'active'
+       ON CONFLICT (order_id, product_id) DO NOTHING`,
+      [productId, orderId, userId]
+    );
+  }
+};
+
+/**
+ * POST /api/orders is retired: an order can no longer be created without going
+ * through payment. Kept as an export so existing route imports don't break.
+ * Use POST /api/payments/create instead.
+ */
+export const createOrder = async (_req: any, res: Response) => {
+  return res.status(410).json({
+    error: "Orders are now created through checkout payment. Please use the Pay Now step in your bag.",
+  });
 };
 
 export const getUserOrders = async (req: any, res: Response) => {
@@ -163,7 +168,7 @@ export const getUserOrders = async (req: any, res: Response) => {
        FROM orders o
        LEFT JOIN addresses a ON o.address_id = a.id
        LEFT JOIN couriers cr ON cr.name = o.courier_name
-       WHERE o.user_id = $1 ORDER BY o.created_at DESC`,
+       WHERE o.user_id = $1 AND o.payment_status = 'paid' ORDER BY o.created_at DESC`,
       [user_id]
     );
     res.json(rows);
@@ -180,6 +185,7 @@ export const getAllOrders = async (req: any, res: Response) => {
       FROM orders o
       JOIN users u ON o.user_id = u.id
       LEFT JOIN addresses a ON o.address_id = a.id
+      WHERE o.payment_status = 'paid'
       ORDER BY o.created_at DESC
     `);
     res.json(rows);

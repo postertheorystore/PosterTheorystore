@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const api = axios.create();
+const api = axios.create({
+  withCredentials: true,
+});
 
 let csrfToken: string | null = null;
 
@@ -23,6 +25,8 @@ api.interceptors.request.use(async (config) => {
   }
 
   const token = localStorage.getItem("token");
+
+  
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;

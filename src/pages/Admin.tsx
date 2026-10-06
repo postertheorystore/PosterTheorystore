@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { ShieldAlert, LayoutDashboard, Image, Package, DollarSign, Ticket, Users, Home, BarChart3 } from 'lucide-react';
+import { ShieldAlert, LayoutDashboard, Image, Package, DollarSign, Ticket, Megaphone, Users, Home, BarChart3 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import DashboardTab from './admin/DashboardTab';
@@ -8,11 +8,12 @@ import PostersTab from './admin/PostersTab';
 import OrdersTab from './admin/OrdersTab';
 import PricingTab from './admin/PricingTab';
 import CouponsTab from './admin/CouponsTab';
+import SalesTab from './admin/SalesTab';
 import CustomersTab from './admin/CustomersTab';
 import HomepageTab from './admin/HomepageTab';
 import AnalyticsTab from './admin/AnalyticsTab';
 
-type Tab = 'dashboard' | 'posters' | 'orders' | 'pricing' | 'coupons' | 'customers' | 'homepage' | 'analytics';
+type Tab = 'dashboard' | 'posters' | 'orders' | 'pricing' | 'coupons' | 'sales' | 'customers' | 'homepage' | 'analytics';
 
 export default function Admin() {
   const { user, token } = useAuth();
@@ -34,6 +35,7 @@ export default function Admin() {
     { id: 'orders', label: 'Orders', icon: <Package className="w-4 h-4" /> },
     { id: 'pricing', label: 'Catalog', icon: <DollarSign className="w-4 h-4" /> },
     { id: 'coupons', label: 'Coupons', icon: <Ticket className="w-4 h-4" /> },
+    { id: 'sales', label: 'Sales', icon: <Megaphone className="w-4 h-4" /> },
     { id: 'customers', label: 'Customers', icon: <Users className="w-4 h-4" /> },
     { id: 'homepage', label: 'Homepage', icon: <Home className="w-4 h-4" /> },
     { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-4 h-4" /> },
@@ -67,6 +69,7 @@ export default function Admin() {
         {activeTab === 'orders' && <OrdersTab token={token} />}
         {activeTab === 'pricing' && <PricingTab token={token} />}
         {activeTab === 'coupons' && <CouponsTab token={token} />}
+        {activeTab === 'sales' && <SalesTab token={token} />}
         {activeTab === 'customers' && <CustomersTab token={token} />}
         {activeTab === 'homepage' && <HomepageTab token={token} />}
         {activeTab === 'analytics' && <AnalyticsTab token={token} />}

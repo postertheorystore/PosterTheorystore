@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import pg from "pg";
-const { Pool } = pg;
+export const { Pool } = pg;
 
 // ─── DEV SEED: Disabled for production ───
 // import { seedDatabase } from "./seed.ts";
@@ -192,6 +192,27 @@ const initDB = async () => {
         expires_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS sale_announcements (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        subtitle TEXT DEFAULT '',
+        description TEXT DEFAULT '',
+        discount_text TEXT DEFAULT '',
+        coupon_code TEXT DEFAULT '',
+        min_order INTEGER DEFAULT 0,
+        starts_at TIMESTAMP,
+        expires_at TIMESTAMP,
+        is_active BOOLEAN DEFAULT true,
+        priority INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_sale_announcements_active ON sale_announcements (is_active);
+      CREATE INDEX IF NOT EXISTS idx_sale_announcements_starts_at ON sale_announcements (starts_at);
+      CREATE INDEX IF NOT EXISTS idx_sale_announcements_expires_at ON sale_announcements (expires_at);
+      CREATE INDEX IF NOT EXISTS idx_sale_announcements_priority ON sale_announcements (priority DESC);
 
       CREATE TABLE IF NOT EXISTS designs (
         id SERIAL PRIMARY KEY,
