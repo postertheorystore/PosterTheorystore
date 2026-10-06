@@ -2,4 +2,7 @@ import { register } from "node:module";
 
 register("tsx/esm", import.meta.url);
 
-await import("./server.ts");
+import("./server.ts").catch((error) => {
+  console.error("Failed to start server:", error);
+  process.exit(1);
+});
