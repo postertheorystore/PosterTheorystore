@@ -19,7 +19,7 @@ const EXIT_MS = 900;
 
 const Preloader: React.FC<PreloaderProps> = ({
   isLoading,
-  minDuration = 1200,
+  minDuration = 2400,
 }) => {
   const [phase, setPhase] = useState<"show" | "exit" | "gone">(
     isLoading ? "show" : "gone"
