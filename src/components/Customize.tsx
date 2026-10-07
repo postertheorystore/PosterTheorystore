@@ -283,7 +283,9 @@ const Customize: React.FC = () => {
                 key={poster.id}
                 poster={poster}
                 onClick={() => navigate(`/customize?size=${encodeURIComponent(poster.name)}`)}
-                ref={(el) => (posterOuterRefs.current[i] = el)}
+                ref={(el) => {
+                      posterOuterRefs.current[i] = el;
+                    }}
               />
             ))}
           </div>

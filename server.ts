@@ -104,7 +104,10 @@ async function startServer() {
   app.post("/api/track-visit", trackVisit);
 
   // Serve Uploads
-  app.use("/uploads", express.static(path.join(__dirname, "public/uploads")));
+  app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "public/uploads"))
+);
 
   // Health Check
   app.get("/api/health", (req, res) => {
@@ -120,7 +123,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, "dist");
+    const distPath = path.resolve(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));

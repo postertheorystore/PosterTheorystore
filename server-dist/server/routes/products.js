@@ -1,0 +1,14 @@
+import express from "express";
+import { getProducts, getTrendingProducts, getNewArrivals, getBestsellerProducts, getProductPricing, getCustomizeConfig, getPublicCollections, getPublicLayouts, getSimilarProducts, getHomepageData } from "../controllers/productController.js";
+const router = express.Router();
+router.get("/", getProducts);
+router.get("/trending", getTrendingProducts);
+router.get("/new-arrivals", getNewArrivals);
+router.get("/bestsellers", getBestsellerProducts);
+router.get("/pricing", getProductPricing);
+router.get("/customize-config", getCustomizeConfig);
+router.get("/collections", getPublicCollections);
+router.get("/layouts", getPublicLayouts);
+router.get("/:id/similar", getSimilarProducts);
+router.get("/homepage", getHomepageData);
+export default router;

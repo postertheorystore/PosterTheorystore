@@ -12,8 +12,17 @@ export interface PublicCoupon {
 }
 
 export type CouponCheck =
-  | { ok: true; coupon: PublicCoupon; discount: number; finalAmount: number }
-  | { ok: false; status: number; error: string };
+  | {
+      ok: true;
+      coupon: PublicCoupon;
+      discount: number;
+      finalAmount: number;
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+    };
 
 /** Same character rules the admin createCoupon uses when storing codes. */
 export const normalizeCouponCode = (raw: unknown): string =>
@@ -82,10 +91,20 @@ export const validateCoupon = async (req: AuthRequest, res: Response) => {
   try {
     // Subtotal comes from the server's own pricing. `order_amount` from the client is ignored.
     const quote = await prepareOrder(req.user!.id, items, addressId, { uploadImages: false });
-    if (!quote.ok) return res.status(quote.status).json({ valid: false, error: quote.error });
+    if ("status" in quote) {
+      return res.status(quote.status).json({
+        valid: false,
+        error: quote.error,
+      });
+    }
 
     const check = await evaluateCoupon(code, quote.serverTotal);
-    if (!check.ok) return res.status(check.status).json({ valid: false, error: check.error });
+   if ("status" in check) {
+      return res.status(check.status).json({
+        valid: false,
+        error: check.error,
+      });
+    }
 
     return res.json({
       valid: true,

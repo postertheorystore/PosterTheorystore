@@ -4,16 +4,17 @@
   "version": "0.0.0",
   "type": "module",
   "engines": {
-  "node": "22.x"
-},
-"scripts": {
-  "dev": "tsx server.ts",
-  "start": "NODE_ENV=production node server.js",
-  "build": "vite build",
-  "preview": "vite preview",
-  "clean": "rm -rf dist",
-  "lint": "tsc --noEmit"
-},
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev": "tsx server.ts",
+    "start": "cross-env NODE_ENV=production node server-dist/server.js",
+    "build": "npm run build:server && vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "preview": "vite preview",
+    "clean": "rm -rf dist server-dist",
+    "lint": "tsc --noEmit"
+  },
   "dependencies": {
     "@cashfreepayments/cashfree-js": "^1.0.7",
     "@tailwindcss/vite": "^4.1.14",
@@ -25,6 +26,7 @@
     "cloudinary": "^2.10.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
+    "cross-env": "^10.1.0",
     "csrf-csrf": "^4.0.3",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",

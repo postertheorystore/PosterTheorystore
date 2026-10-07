@@ -12,8 +12,16 @@ const uploadBase64ToCloudinary = async (base64: string, userId: number): Promise
 };
 
 export type PrepareOrderResult =
-  | { ok: true; serverTotal: number; processedItems: any[] }
-  | { ok: false; status: number; error: string };
+  | {
+      ok: true;
+      serverTotal: number;
+      processedItems: any[];
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+    };
 
 /**
  * Existing order validation + server-side pricing, extracted unchanged from the

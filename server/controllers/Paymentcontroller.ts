@@ -219,8 +219,11 @@ export const createPayment = async (req: any, res: Response) => {
 
     // 1) Validate + price on the server. The amount below is the ONLY amount ever charged.
     const quote = await prepareOrder(userId, rawItems, address_id, { uploadImages: false });
-    if (!quote.ok) return res.status(quote.status).json({ error: quote.error });
-
+   if ("status" in quote) {
+  return res.status(quote.status).json({
+    error: quote.error,
+  });
+}
     const fingerprint = fingerprintOf(rawItems, address_id);
 
         // 1b) Optional coupon, checked against the SERVER subtotal.
@@ -230,8 +233,11 @@ export const createPayment = async (req: any, res: Response) => {
     let payable = quote.serverTotal;
     if (couponCode) {
       const check = await evaluateCoupon(couponCode, quote.serverTotal);
-      if (!check.ok) {
-        return res.status(check.status).json({ error: check.error, coupon_invalid: true });
+      if ("status" in check) {
+        return res.status(check.status).json({
+          error: check.error,
+          coupon_invalid: true,
+        });
       }
       coupon = check.coupon;
       discount = check.discount;
@@ -284,7 +290,11 @@ export const createPayment = async (req: any, res: Response) => {
     // 4) No open order: create it (this is where custom images go to Cloudinary).
     if (!order) {
       const full = await prepareOrder(userId, rawItems, address_id, { uploadImages: true });
-      if (!full.ok) return res.status(full.status).json({ error: full.error });
+      if ("status" in full) {
+        return res.status(full.status).json({
+          error: full.error,
+        });
+      }
 
       try {
           const ins = await pool.query(

@@ -1,0 +1,14 @@
+import express from "express";
+import { authenticateToken } from "../middleware/authMiddleware.js";
+import { updateProfile, getAddresses, addAddress, updateAddress, deleteAddress, checkProfileComplete, getCart, saveCart, clearCartDB, } from "../controllers/profileController.js";
+const router = express.Router();
+router.put("/", authenticateToken, updateProfile);
+router.get("/check", authenticateToken, checkProfileComplete);
+router.get("/addresses", authenticateToken, getAddresses);
+router.post("/addresses", authenticateToken, addAddress);
+router.put("/addresses/:id", authenticateToken, updateAddress);
+router.delete("/addresses/:id", authenticateToken, deleteAddress);
+router.get("/cart", authenticateToken, getCart);
+router.post("/cart", authenticateToken, saveCart);
+router.delete("/cart", authenticateToken, clearCartDB);
+export default router;
