@@ -23,7 +23,7 @@ export const sendOtpEmail = async (
     : "Use the verification code below to verify your Poster Theory account.";
 
   const { data, error } = await resend.emails.send({
-    from: "Poster Theory <onboarding@resend.dev>",
+    from: "Poster Theory <no-reply@mail.postertheorystore.in>",
     to: [email],
     subject,
 
