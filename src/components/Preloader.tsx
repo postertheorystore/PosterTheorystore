@@ -4,7 +4,7 @@ import {
   LOGO_VIEWBOX,
   LOGO_X_MAX,
   LOGO_X_MIN,
-} from "./logoPaths";
+} from "./Logopaths";
 
 interface PreloaderProps {
   isLoading: boolean;
