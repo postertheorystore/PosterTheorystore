@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState, useEffect } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowUpRight } from "lucide-react";
 import { motion } from "motion/react";
@@ -10,108 +10,115 @@ import GlitchOverlay from "./Glitchoverlay";
 gsap.registerPlugin(ScrollTrigger);
 
 /* =========================================================
-   WALL LAYOUT CONFIG
-   Real print sizes drive the proportions of the gallery wall.
-   Every frame sits in its own grid cell — never overlapping,
-   never rotated — laid out like posters actually hung on a
-   wall. Bookmark is intentionally excluded (too narrow/tall
-   to read well as a wall poster).
+   WALL LAYOUT — follows the hand-drawn sketch
+
+        ┌──────────┬───────────────────┐
+        │          │        A4         │
+        │          ├────────┬──────────┤
+        │    A3    │        │    A6    │
+        │          │   A5   ├─────┬────┤
+        │          │        │Pckt │Pol.│
+        └──────────┴────────┴─────┴────┘
+
+   Every frame fills its own grid cell, so nothing overlaps
+   and nothing is rotated. The cell proportions were worked
+   out from the real sizes so each frame still reads close to
+   its true shape (A3 tall, A5 portrait, Polaroid squarer than
+   Pocket) — A4 and A6 are landscape, exactly as sketched.
+   Bookmark is intentionally excluded.
 ========================================================= */
 
 interface WallPoster {
   id: string;
   name: string;
+  /** real print size in mm (from DEFAULT_SIZES) — used for the label */
   width_mm: number;
   height_mm: number;
   /** grid-area name used to place this frame in the wall grid */
   area: string;
+  /** printed-area inset in % — Polaroid / Pocket get a thicker bottom border */
+  inset: { top: number; right: number; bottom: number; left: number };
 }
 
 const WALL_POSTERS: WallPoster[] = [
-  { id: "a3", name: "A3", width_mm: 297, height_mm: 420, area: "a3" },
-  { id: "a4", name: "A4", width_mm: 210, height_mm: 297, area: "a4" },
-  { id: "a5", name: "A5", width_mm: 148, height_mm: 210, area: "a5" },
-  { id: "a6", name: "A6", width_mm: 105, height_mm: 148, area: "a6" },
-  { id: "polaroid", name: "Polaroid", width_mm: 75, height_mm: 90, area: "polaroid" },
-  { id: "pocket", name: "Pocket", width_mm: 50, height_mm: 70, area: "pocket" },
+  { id: "a3", name: "A3", width_mm: 297, height_mm: 420, area: "a3", inset: { top: 3, right: 4, bottom: 3, left: 4 } },
+  { id: "a4", name: "A4", width_mm: 210, height_mm: 297, area: "a4", inset: { top: 4, right: 3, bottom: 4, left: 3 } },
+  { id: "a5", name: "A5", width_mm: 148, height_mm: 210, area: "a5", inset: { top: 3, right: 5, bottom: 3, left: 5 } },
+  { id: "a6", name: "A6", width_mm: 105, height_mm: 148, area: "a6", inset: { top: 5, right: 4, bottom: 5, left: 4 } },
+  { id: "pocket", name: "Pocket", width_mm: 50, height_mm: 70, area: "pocket", inset: { top: 5, right: 7, bottom: 20, left: 7 } },
+  { id: "polaroid", name: "Polaroid", width_mm: 75, height_mm: 90, area: "polaroid", inset: { top: 6, right: 7, bottom: 22, left: 7 } },
 ];
 
-/* Desktop: A3 anchors the wall (tall, 2 cols x 3 rows), A4 sits
-   beside it (2 cols x 2 rows), A5 fills the top-right column,
-   and A6 / Polaroid / Pocket line up along the bottom — a real
-   salon-wall arrangement, every frame in its own cell. */
-const DESKTOP_AREAS = `
-  "a3 a3 a4 a4 a5"
-  "a3 a3 a4 a4 a5"
-  "a3 a3 a6 polaroid pocket"
+const WALL_AREAS = `
+  "a3 a4 a4 a4"
+  "a3 a5 a6 a6"
+  "a3 a5 pocket polaroid"
 `;
-const DESKTOP_COLUMNS = "1.5fr 1.5fr 1.05fr 1.05fr 1fr";
-const DESKTOP_ROWS = "1.1fr 1.1fr 0.85fr";
+// column / row weights = the real proportions of each frame, so the
+// whole wall keeps a fixed 599 : 400 shape at every screen size
+const WALL_COLUMNS = "283fr 147fr 71fr 83fr";
+const WALL_ROWS = "186fr 104fr 100fr";
 
-/* Mobile/tablet: simplified 3x3 wall — A3 still anchors, the
-   rest fall into a clean stacked pattern underneath. */
-const MOBILE_AREAS = `
-  "a3 a3 a4"
-  "a3 a3 a5"
-  "a6 polaroid pocket"
-`;
-const MOBILE_COLUMNS = "repeat(3, 1fr)";
-const MOBILE_ROWS = "repeat(3, 1fr)";
+// 297 -> "29.7", 420 -> "42", 50 -> "5", 75 -> "7.5"
+const cm = (mm: number) => `${Math.round(mm) / 10}`;
 
 /* =========================================================
    POSTER FRAME
-   Outer node = GSAP owns it (scroll-in entrance only — no
-   rotation, no idle drift, nothing that could ever imply
-   overlap). Inner motion.div = a tiny, fixed hover lift.
-   The size label lives OUTSIDE the frame as a wall placard,
-   so it always fits no matter how small the print is.
+   Outer node = GSAP owns it (scroll-in entrance only).
+   Inner motion.div = a small hover lift.
+
+   The size label is pinned to the frame's bottom-left corner.
+   The frame is a CSS size container and the label's font size
+   is in `cqw` (container-width units), so the text scales with
+   the frame — it fits inside A3 and Pocket alike.
 ========================================================= */
 
 const PosterFrame = React.forwardRef<HTMLDivElement, { poster: WallPoster; onClick: () => void }>(
   ({ poster, onClick }, outerRef) => {
+    const { inset } = poster;
+
     return (
-      <div
-        ref={outerRef}
-        style={{ gridArea: poster.area, opacity: 0 }}
-        className="wall-poster relative flex h-full w-full flex-col items-center justify-end gap-2 sm:gap-3"
-      >
-        {/* frame + art */}
-        <div className="relative flex w-full flex-1 items-end justify-center">
-          <motion.div
-            onClick={onClick}
-            whileHover={{ scale: 1.04 }}
-            whileTap={{ scale: 0.98 }}
-            transition={{ type: "spring", stiffness: 300, damping: 22 }}
-            style={{ aspectRatio: `${poster.width_mm} / ${poster.height_mm}` }}
-            className="group relative h-full max-h-full w-auto max-w-full cursor-pointer border-2 border-z-paper bg-z-paper shadow-[8px_8px_0px_0px_rgba(255,255,255,0.12)] transition-shadow duration-300 hover:shadow-[12px_12px_0px_0px_rgba(255,255,255,0.18)]"
+      <div ref={outerRef} style={{ gridArea: poster.area, opacity: 0 }} className="relative h-full w-full">
+        <motion.div
+          onClick={onClick}
+          whileHover={{ scale: 1.03, zIndex: 20 }}
+          whileTap={{ scale: 0.98 }}
+          transition={{ type: "spring", stiffness: 300, damping: 22 }}
+          style={{ containerType: "inline-size" }}
+          className="group relative h-full w-full cursor-pointer border-2 border-z-paper bg-z-paper shadow-[6px_6px_0px_0px_rgba(255,255,255,0.12)] transition-shadow duration-300 hover:shadow-[10px_10px_0px_0px_rgba(255,255,255,0.18)]"
+        >
+          {/* registration marks */}
+          <span className="absolute -left-1.5 -top-1.5 h-2.5 w-2.5 border-l-2 border-t-2 border-z-paper/60" />
+          <span className="absolute -bottom-1.5 -right-1.5 h-2.5 w-2.5 border-b-2 border-r-2 border-z-paper/60" />
+
+          {/* printed area — halftone placeholder, no external image dependency */}
+          <div
+            className="absolute overflow-hidden bg-z-ink"
+            style={{ top: `${inset.top}%`, right: `${inset.right}%`, bottom: `${inset.bottom}%`, left: `${inset.left}%` }}
           >
-            {/* registration marks */}
-            <span className="absolute -left-1.5 -top-1.5 h-2.5 w-2.5 border-l-2 border-t-2 border-z-paper/60" />
-            <span className="absolute -bottom-1.5 -right-1.5 h-2.5 w-2.5 border-b-2 border-r-2 border-z-paper/60" />
+            <div
+              className="absolute inset-0 opacity-40"
+              style={{
+                backgroundImage: "radial-gradient(rgba(255,255,255,0.5) 1px, transparent 1.5px)",
+                backgroundSize: "8px 8px",
+              }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+          </div>
 
-            {/* placeholder art — halftone dots, no external image dependency */}
-            <div className="relative h-full w-full overflow-hidden bg-z-ink">
-              <div
-                className="absolute inset-0 opacity-40"
-                style={{
-                  backgroundImage: "radial-gradient(rgba(255,255,255,0.5) 1px, transparent 1.5px)",
-                  backgroundSize: "8px 8px",
-                }}
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-            </div>
-          </motion.div>
-        </div>
-
-        {/* wall placard — always the same size, so it always fits */}
-        <div className="pointer-events-none text-center leading-tight">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-z-paper sm:text-xs">
-            {poster.name}
-          </p>
-          <p className="mt-0.5 whitespace-nowrap font-mono text-[8px] tracking-wider text-z-paper/40 sm:text-[10px]">
-            {poster.width_mm}&nbsp;&times;&nbsp;{poster.height_mm}mm
-          </p>
-        </div>
+          {/* size label — bottom-left corner of the frame */}
+          <div
+            className="pointer-events-none absolute bottom-0 left-0 z-10 bg-z-paper font-mono uppercase leading-none text-z-ink"
+            style={{ padding: "clamp(2px, 3cqw, 9px)" }}
+          >
+            <p className="font-bold tracking-[0.08em]" style={{ fontSize: "clamp(6px, 8cqw, 15px)" }}>
+              {poster.name}
+            </p>
+            <p className="mt-[0.35em] whitespace-nowrap tracking-wide text-z-ink/60" style={{ fontSize: "clamp(5px, 5.5cqw, 11px)" }}>
+              {cm(poster.width_mm)}&times;{cm(poster.height_mm)}cm
+            </p>
+          </div>
+        </motion.div>
       </div>
     );
   }
@@ -130,19 +137,10 @@ const Customize: React.FC = () => {
   const posterOuterRefs = useRef<(HTMLDivElement | null)[]>([]);
   const navigate = useNavigate();
 
-  const [isDesktop, setIsDesktop] = useState(false);
   // fires once when the section scrolls into view: bursts the heading's
   // glitch, the full-section overlay, and a brief section-wide shake —
   // then everything settles into its quieter "ambient" flicker state
   const [sectionGlitch, setSectionGlitch] = useState(false);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const update = () => setIsDesktop(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
 
   useLayoutEffect(() => {
     const section = sectionRef.current;
@@ -170,9 +168,7 @@ const Customize: React.FC = () => {
         });
       }
 
-      // gallery-wall entrance — every frame settles into its own grid
-      // cell once, in place. No rotation, no idle drift: once it's
-      // hung, it stays put, like a real wall.
+      // gallery-wall entrance — every frame settles into its own grid cell
       gsap.set(posterOuterRefs.current, { scale: 0.85, y: 24 });
 
       ScrollTrigger.create({
@@ -196,8 +192,8 @@ const Customize: React.FC = () => {
       });
     }, section);
 
-    // subtle parallax drift on the whole collage while scrolling past —
-    // the wall moves as one piece, so nothing ever overlaps
+    // subtle parallax drift on the whole wall while scrolling past —
+    // it moves as one piece, so nothing ever overlaps
     const parallax = gsap.to(postersWrapRef.current, {
       y: -24,
       ease: "none",
@@ -219,7 +215,7 @@ const Customize: React.FC = () => {
     >
       {/* whole-section neon glitch — faint scanlines + color bands always
           on, with a short GSAP camera-shake burst once the section scrolls
-          in. Matches the "Customize" nav link and the heading above. */}
+          in. Matches the "Customize" nav link and the heading below. */}
       <GlitchOverlay ambient burst={sectionGlitch} shakeTargetRef={sectionRef} />
 
       {/* ================================================= AMBIENT MARQUEE ================================================= */}
@@ -265,17 +261,19 @@ const Customize: React.FC = () => {
           </Link>
         </div>
 
-        {/* ================================================= RIGHT — GALLERY WALL ================================================= */}
+        {/* ================================================= RIGHT — GALLERY WALL (sketch layout) ================================================= */}
         <div
           ref={postersWrapRef}
-          className="mx-auto h-[420px] w-full max-w-[560px] sm:h-[480px] lg:mx-0 lg:h-[520px]"
+          className="mx-auto w-full max-w-[600px] lg:mx-0"
+          style={{ aspectRatio: "599 / 400" }}
         >
           <div
-            className="grid h-full w-full gap-4 sm:gap-5 lg:gap-6"
+            className="grid h-full w-full"
             style={{
-              gridTemplateAreas: isDesktop ? DESKTOP_AREAS : MOBILE_AREAS,
-              gridTemplateColumns: isDesktop ? DESKTOP_COLUMNS : MOBILE_COLUMNS,
-              gridTemplateRows: isDesktop ? DESKTOP_ROWS : MOBILE_ROWS,
+              gridTemplateAreas: WALL_AREAS,
+              gridTemplateColumns: WALL_COLUMNS,
+              gridTemplateRows: WALL_ROWS,
+              gap: "clamp(6px, 1.2vw, 12px)",
             }}
           >
             {WALL_POSTERS.map((poster, i) => (
@@ -284,8 +282,8 @@ const Customize: React.FC = () => {
                 poster={poster}
                 onClick={() => navigate(`/customize?size=${encodeURIComponent(poster.name)}`)}
                 ref={(el) => {
-                      posterOuterRefs.current[i] = el;
-                    }}
+                  posterOuterRefs.current[i] = el;
+                }}
               />
             ))}
           </div>
