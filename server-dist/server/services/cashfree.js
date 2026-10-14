@@ -18,7 +18,9 @@ export class CashfreeApiError extends Error {
     }
 }
 export const getCashfreeEnvironment = () => (process.env.CASHFREE_ENV || "sandbox").toLowerCase() === "production" ? "production" : "sandbox";
-const baseUrl = () => getCashfreeEnvironment() === "production" ? "https://api.cashfree.com/pg" : "https://sandbox.cashfree.com/pg";
+const baseUrl = () => getCashfreeEnvironment() === "production"
+    ? "https://api.cashfree.com/pg"
+    : "https://sandbox.cashfree.com/pg";
 const authHeaders = () => {
     const clientId = process.env.CASHFREE_CLIENT_ID;
     const clientSecret = process.env.CASHFREE_CLIENT_SECRET;

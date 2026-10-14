@@ -81,7 +81,9 @@ export default function Payment() {
   const clearCartRef = useRef(clearCart);
   clearCartRef.current = clearCart;
 
-  const displayTotal = verifiedTotal ?? total;
+  const displayTotal = appliedCoupon
+  ? Number(appliedCoupon.final_amount)
+  : verifiedTotal ?? total;
 
   useEffect(() => {
     aliveRef.current = true;
@@ -219,81 +221,151 @@ export default function Payment() {
   }, []);
 
   /* ---------- PAY NOW ---------- */
-  const handlePayNow = async () => {
-    if (payingRef.current || !addressId || phase !== 'ready') return;
-    payingRef.current = true;
-    setErrorMsg('');
-    setPriceChanged(false);
-    setPhase('paying');
+ 
+const handlePayNow = async () => {
+  if (payingRef.current || !addressId || phase !== "ready") return;
 
-    try {
-      // Same payload the old "PLACE ORDER" sent. Full-res images come from IndexedDB.
-      const itemsWithFullImages = await Promise.all(
-        cart.map(async (item) => {
-          const fullImage = await getImage(item.cartItemId);
-          return { ...item, image: fullImage || item.image };
-        })
-      );
+  payingRef.current = true;
+  setErrorMsg("");
+  setPriceChanged(false);
+  setPhase("paying");
 
-      const checkoutTotal = appliedCoupon
-  ? appliedCoupon.final_amount
-  : total;
+  let stage = "loading cart images";
 
-      const res = await api.post(
-        '/api/payments/create',
-        {
-          total: checkoutTotal,
-          items: itemsWithFullImages,
-          address_id: addressId,
-          coupon_code: appliedCoupon?.code || null,
+  try {
+    console.log("[Payment] Starting checkout");
+
+    const itemsWithFullImages = await Promise.all(
+      cart.map(async (item) => {
+        const fullImage = await getImage(item.cartItemId);
+        return { ...item, image: fullImage || item.image };
+      })
+    );
+
+    stage = "creating payment order";
+
+    const checkoutTotal = appliedCoupon
+      ? Number(appliedCoupon.final_amount)
+      : total;
+
+    console.log("[Payment] Creating order", {
+      itemCount: itemsWithFullImages.length,
+      addressId,
+      couponApplied: Boolean(appliedCoupon),
+      checkoutTotal,
+    });
+
+    const res = await api.post(
+      "/api/payments/create",
+      {
+        total: checkoutTotal,
+        items: itemsWithFullImages,
+        address_id: addressId,
+        coupon_code: appliedCoupon?.code || null,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
         },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      const data = res.data;
-
-      // This exact cart was already paid (e.g. paid in another tab): go straight to verification.
-      if (data.already_paid && data.cashfree_order_id) {
-        payingRef.current = false;
-        await verifyPayment(data.cashfree_order_id);
-        return;
       }
+    );
 
-      // Server price differs from what the customer was shown: make them confirm the real number.
-      if (Math.abs(Number(data.amount) - displayTotal) > 0.009) {
-        setVerifiedTotal(Number(data.amount));
-        setPriceChanged(true);
-        payingRef.current = false;
-        setPhase('ready');
-        return;
-      }
+    const data = res.data;
 
-      const cashfree = await load({ mode: data.environment === 'production' ? 'production' : 'sandbox' });
-      if (!cashfree) throw new Error('Payment could not be started. Please check your connection and try again.');
+    console.log("[Payment] Create-order response", {
+      order_id: data.order_id,
+      cashfree_order_id: data.cashfree_order_id,
+      sessionReceived: Boolean(data.payment_session_id),
+      environment: data.environment,
+      amount: data.amount,
+    });
 
-      // Hosted checkout: full-page redirect to Cashfree, then back to /payment?cf_order_id=...
-      const result: any = await cashfree.checkout({
-        paymentSessionId: data.payment_session_id,
-        redirectTarget: '_self',
-      });
-      if (result?.error) {
-        throw new Error(result.error.message || 'Payment could not be started.');
-      }
-      // Success path: the browser is navigating away; stay in 'paying' until it does.
-    } catch (err: any) {
-      if (!aliveRef.current) return;
-      if (err.response?.status === 401) {
-        navigate(`/login?redirect=${encodeURIComponent('/payment')}`, { replace: true });
-        return;
-      }
-      setErrorMsg(err.response?.data?.error || err.message || 'Payment could not be started. Please try again.');
+    if (data.already_paid && data.cashfree_order_id) {
       payingRef.current = false;
-      setPhase('ready');
+      await verifyPayment(data.cashfree_order_id);
+      return;
     }
-  };
+
+    if (!data.payment_session_id) {
+      throw new Error(
+        "The server did not return a Cashfree payment session."
+      );
+    }
+
+    if (Math.abs(Number(data.amount) - displayTotal) > 0.009) {
+      setVerifiedTotal(Number(data.amount));
+      setPriceChanged(true);
+      payingRef.current = false;
+      setPhase("ready");
+      return;
+    }
+
+    stage = "loading Cashfree SDK";
+
+    const cashfree = await load({
+      mode: data.environment === "production" ? "production" : "sandbox",
+    });
+
+    if (!cashfree) {
+      throw new Error("Cashfree SDK failed to load.");
+    }
+
+    stage = "opening Cashfree checkout";
+
+    console.log("[Payment] Opening hosted checkout");
+
+    const result: any = await cashfree.checkout({
+      paymentSessionId: data.payment_session_id,
+      redirectTarget: "_self",
+    });
+
+    console.log("[Payment] Checkout result", {
+      hasError: Boolean(result?.error),
+      errorMessage: result?.error?.message,
+    });
+
+    if (result?.error) {
+      throw new Error(
+        result.error.message || "Cashfree could not open checkout."
+      );
+    }
+
+    // If checkout resolves without navigating, don't leave the button
+    // permanently stuck in the redirecting state.
+    payingRef.current = false;
+    setPhase("ready");
+    setErrorMsg(
+      "Cashfree did not redirect. Please check the browser console and try again."
+    );
+  } catch (err: any) {
+    console.error(`[Payment] Failed at stage: ${stage}`, {
+      message: err.message,
+      status: err.response?.status,
+      response: err.response?.data,
+    });
+
+    if (!aliveRef.current) return;
+
+    if (err.response?.status === 401) {
+      payingRef.current = false;
+      navigate(
+        `/login?redirect=${encodeURIComponent("/payment")}`,
+        { replace: true }
+      );
+      return;
+    }
+
+    setErrorMsg(
+      err.response?.data?.error ||
+        err.message ||
+        "Payment could not be started. Please try again."
+    );
+
+    payingRef.current = false;
+    setPhase("ready");
+  }
+};
+
 
   const handleRetry = () => {
     setErrorMsg('');

@@ -42,8 +42,13 @@ export interface CashfreePayment {
 export const getCashfreeEnvironment = (): CashfreeEnvironment =>
   (process.env.CASHFREE_ENV || "sandbox").toLowerCase() === "production" ? "production" : "sandbox";
 
+
+  
 const baseUrl = () =>
-  getCashfreeEnvironment() === "production" ? "https://api.cashfree.com/pg" : "https://sandbox.cashfree.com/pg";
+  getCashfreeEnvironment() === "production"
+    ? "https://api.cashfree.com/pg"
+    : "https://sandbox.cashfree.com/pg";
+
 
 const authHeaders = () => {
   const clientId = process.env.CASHFREE_CLIENT_ID;

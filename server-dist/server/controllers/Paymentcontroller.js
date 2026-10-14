@@ -51,10 +51,25 @@ const gatewayErrorResponse = (err, res, label) => {
     if (err instanceof CashfreeConfigError) {
         return res.status(500).json({ error: "Payment gateway is not configured. Please contact support." });
     }
-    if (err instanceof CashfreeApiError) {
-        return res.status(502).json({ error: "Payment gateway is unavailable right now. Please try again in a moment." });
-    }
-    return res.status(500).json({ error: "Something went wrong with the payment. Please try again." });
+    const gatewayErrorResponse = (err, res, label) => {
+        if (err instanceof CashfreeConfigError) {
+            console.error(`[${label}] Cashfree configuration error:`, err.message);
+            return res.status(500).json({
+                error: "Payment gateway is not configured. Please contact support.",
+            });
+        }
+        if (err instanceof CashfreeApiError) {
+            // Diagnostic only: do not log API secrets or authorization headers.
+            console.error(`[${label}] Cashfree API error:`, err);
+            return res.status(502).json({
+                error: "Payment gateway is unavailable right now. Please try again in a moment.",
+            });
+        }
+        console.error(`[${label}] Unexpected payment error:`, err);
+        return res.status(500).json({
+            error: "Something went wrong with the payment. Please try again.",
+        });
+    };
 };
 /* ------------------------------------------------------------------ */
 /* payment state machine (single source of truth for paid / failed)    */
