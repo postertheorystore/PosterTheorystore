@@ -498,7 +498,7 @@ const handlePayNow = async () => {
       <div className="max-w-7xl mx-auto">
         <header className="mb-20 border-b-4 border-z-border pb-8 flex items-baseline justify-between">
           <h1 className="font-display font-black text-6xl md:text-8xl uppercase tracking-tighter leading-none">
-            Secure_<span className="text-outline">Payment</span>
+            Payment
           </h1>
           <p className="font-mono text-[14px] font-bold text-z-ink border-2 border-z-border px-4 py-1">
             [{cart.reduce((sum, i) => sum + i.quantity, 0)}] POSTERS

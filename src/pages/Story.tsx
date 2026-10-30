@@ -15,7 +15,7 @@ export default function Story() {
         </header>
 
         <div className="max-w-4xl mx-auto space-y-24 text-z-ink leading-relaxed">
-          <p className="font-display font-black text-4xl sm:text-5xl tracking-tighter uppercase   text-center text-outline">
+          <p className="font-display font-black text-4xl sm:text-5xl tracking-tighter uppercase   text-center  ">
             "In a world that never stops talking, your space should be the frequency where you sync."
           </p>
           
@@ -39,7 +39,7 @@ export default function Story() {
           </div>
 
           <p className="font-display font-black text-2xl uppercase tracking-tighter text-center leading-normal">
-            Our aesthetic is <span className="text-outline">"CURATED_CHAOS"</span>—a protocol to describe life's beautiful, unpredictable nature balanced by the rigid precision of brutalist design. We don't believe in perfect homes; we believe in <span className="underline decoration-4">HONEST_ARCHIVES.</span>
+            Our aesthetic is <span className=" ">"CURATED_CHAOS"</span>—a protocol to describe life's beautiful, unpredictable nature balanced by the rigid precision of brutalist design. We don't believe in perfect homes; we believe in <span className="underline decoration-4">HONEST_ARCHIVES.</span>
           </p>
 
           <div className="pt-24 border-t-4 border-z-border flex flex-col items-center">

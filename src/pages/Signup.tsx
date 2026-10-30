@@ -81,7 +81,7 @@ export default function Signup() {
             {step === 'form' ? 'CREATE_ACCOUNT' : 'VERIFY_EMAIL'}
           </p>
           <h1 className="font-display font-black text-5xl uppercase tracking-tighter  leading-none text-z-ink">
-            {step === 'form' ? <>SIGN UP</> : <>ENTER <span className="text-outline">OTP</span></>}
+            {step === 'form' ? <>SIGN UP</> : <>ENTER <span className=" ">OTP</span></>}
           </h1>
         </div>
 

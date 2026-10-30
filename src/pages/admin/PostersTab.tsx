@@ -125,8 +125,23 @@ export default function PostersTab({ token }: { token: string | null }) {
       setProducts(prev => [res.data, ...prev]);
       setForm(emptyForm());
       setImageFiles([]);
-    } catch { alert("Failed"); }
-    setSubmitting(false);
+    
+} catch (error: any) {
+  console.error(
+    'Create poster failed:',
+    error.response?.data || error
+  );
+
+  alert(
+    error.response?.data?.error ||
+    error.response?.data?.message ||
+    error.message ||
+    'Failed to create poster. Check the backend terminal.'
+  );
+} finally {
+  setSubmitting(false);
+}
+
   };
 
   const openEdit = async (product: any) => {

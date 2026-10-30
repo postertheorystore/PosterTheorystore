@@ -39,6 +39,36 @@ export const getProducts = async (req, res) => {
         res.status(500).json({ error: "Failed to fetch products" });
     }
 };
+export const getCategoryPricing = async (req, res) => {
+    try {
+        const { rows } = await pool.query(`
+      SELECT
+        cp.id,
+        cp.category,
+        cp.size_id,
+        s.name AS size_name,
+        s.width_mm,
+        s.height_mm,
+        cp.price
+      FROM category_pricing cp
+      JOIN sizes s ON s.id = cp.size_id
+      WHERE s.is_active = true
+      ORDER BY
+        CASE cp.category
+          WHEN 'framed_photo' THEN 1
+          WHEN 'print_only' THEN 2
+        END,
+        s.id
+    `);
+        res.json(rows);
+    }
+    catch (err) {
+        console.error('getCategoryPricing error:', err);
+        res.status(500).json({
+            error: 'Failed to fetch category pricing',
+        });
+    }
+};
 export const getProductPricing = async (req, res) => {
     try {
         const { rows } = await pool.query(`
@@ -57,17 +87,32 @@ export const getProductPricing = async (req, res) => {
 // Public endpoint: returns all sizes, layouts, and pricing for the customize page
 export const getCustomizeConfig = async (req, res) => {
     try {
-        const [sizesRes, layoutsRes, pricingRes, frameRes, materialRes] = await Promise.all([
+        const [sizesRes, layoutsRes, pricingRes, frameRes, materialRes, categoryRes,] = await Promise.all([
             pool.query("SELECT * FROM sizes WHERE is_active = true ORDER BY width_mm DESC"),
             pool.query("SELECT * FROM layouts WHERE is_active = true ORDER BY panel_count"),
             pool.query(`
-        SELECT p.price, s.name as size_name, l.name as layout_name
-        FROM pricing p
-        JOIN sizes s ON p.size_id = s.id
-        JOIN layouts l ON p.layout_id = l.id
-      `),
+    SELECT p.price, s.name AS size_name, l.name AS layout_name
+    FROM pricing p
+    JOIN sizes s ON p.size_id = s.id
+    JOIN layouts l ON p.layout_id = l.id
+  `),
             pool.query("SELECT * FROM frame_pricing ORDER BY size_name").catch(() => ({ rows: [] })),
             pool.query("SELECT * FROM material_pricing ORDER BY material").catch(() => ({ rows: [] })),
+            // NEW: category-based prices
+            pool.query(`
+    SELECT
+      cp.id,
+      cp.category,
+      cp.size_id,
+      s.name AS size_name,
+      s.width_mm,
+      s.height_mm,
+      cp.price
+    FROM category_pricing cp
+    JOIN sizes s ON s.id = cp.size_id
+    WHERE s.is_active = true
+    ORDER BY cp.category, s.id
+  `),
         ]);
         res.json({
             sizes: sizesRes.rows,
@@ -75,6 +120,7 @@ export const getCustomizeConfig = async (req, res) => {
             pricing: pricingRes.rows,
             framePricing: frameRes.rows,
             materialPricing: materialRes.rows,
+            categoryPricing: categoryRes.rows,
         });
     }
     catch (err) {

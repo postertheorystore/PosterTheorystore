@@ -47,7 +47,7 @@ export default function SetPassword() {
             ALMOST_THERE
           </p>
           <h1 className="font-display font-black text-5xl uppercase tracking-tighter   leading-none text-z-ink">
-            SET_<span className="text-outline">PASSWORD</span>
+            SET_<span className=" ">PASSWORD</span>
           </h1>
         </div>
 

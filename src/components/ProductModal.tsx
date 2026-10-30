@@ -180,11 +180,15 @@ function ProductDetails({
   onProductSelect?: (product: any) => void;
 }) {
   const { addToCart } = useCart();
-  const { sizes, layouts, sizePrices, portraitOnly, framePricing, materialPricing } = config;
+  const { sizes, layouts, sizePrices, portraitOnly, framePricing, materialPricing,categoryPricing } = config;
 
   const [similarProducts, setSimilarProducts] = useState<any[]>([]);
   const [similarLoading, setSimilarLoading] = useState(false);
 
+
+  type PricingCategory = 'framed_photo' | 'print_only';
+
+  const [priceCategory, setPriceCategory] = useState<PricingCategory>('print_only');
   const [selectedSize, setSelectedSize] = useState('A4');
   const [selectedLayout, setSelectedLayout] = useState('Single');
   const [printStyle, setPrintStyle] = useState<'full-bleed' | 'white-margin'>('full-bleed');
@@ -297,45 +301,74 @@ function ProductDetails({
     if (!frameAvailable) setWithFrame(false);
   }, [frameAvailable]);
 
-  /* ---------- pricing (unchanged) ---------- */
-  const materialExtra = materialPricing.find((m) => m.material === selectedMaterial)?.extra_price ?? 0;
+ /* ---------- Database category-based pricing ---------- */
 
-  // Price = (size base price + frame + material) × panel count
-  const sizeBasePrice = sizePrices[selectedSize] || 0;
-  const frameCost = !isNoFrame && withFrame && frameEntry ? frameEntry.price : 0;
-  const pricePerSheet = sizeBasePrice + (isNoFrame ? 0 : frameCost) + (isNoFrame ? 0 : materialExtra);
-  const price = pricePerSheet * panelCount;
+const selectedSizeObj = sizes.find(
+  (s) => s.name === selectedSize
+);
+
+const categoryPrice = categoryPricing.find(
+  (item) =>
+    item.category === (withFrame ? 'framed_photo' : 'print_only') &&
+    item.size_id === selectedSizeObj?.id
+);
+
+const materialExtra =
+  !withFrame || isNoFrame
+    ? 0
+    : materialPricing.find(
+        (m) => m.material === selectedMaterial
+      )?.extra_price ?? 0;
+
+const sizeBasePrice = categoryPrice?.price ?? 0;
+
+// Category price already includes the frame for framed photos.
+const frameCost = 0;
+
+const pricePerSheet =
+  sizeBasePrice + materialExtra;
+
+const price = pricePerSheet * panelCount;
 
   const nextImg = () => setCurrentImg((prev) => (prev + 1) % images.length);
   const prevImg = () => setCurrentImg((prev) => (prev - 1 + images.length) % images.length);
 
   const handleAddToCart = () => {
-    addToCart({
-      id: product.id,
-      title: product.title,
-      price,
-      image: images[0],
-      collection: product.collection_name || '',
-      size: `${selectedSize} ${orientation} - ${selectedLayout}`,
-      quantity,
-      customSpecs: {
-        size: selectedSize,
-        orientation,
-        layout: selectedLayout,
-        panelCount,
-        printStyle,
-        unitCount: quantity,
-        material: selectedMaterial,
-        frame: withFrame ? frameColor : 'None',
-      },
-    });
-    setAdded(true);
-    setTimeout(() => {
-      setAdded(false);
-      onClose();
-    }, 1200);
-  };
+  const selectedSizeObj = sizes.find(
+    (s) => s.name === selectedSize
+  );
 
+  addToCart({
+    id: product.id,
+    title: product.title,
+    price,
+    image: images[0],
+    collection: product.collection_name || '',
+    size: `${selectedSize} ${orientation} - ${selectedLayout}`,
+    quantity,
+
+    // New category-based pricing data
+    priceCategory: withFrame ? 'framed_photo' : 'print_only',
+    sizeId: selectedSizeObj?.id,
+
+    customSpecs: {
+      size: selectedSize,
+      orientation,
+      layout: selectedLayout,
+      panelCount,
+      printStyle,
+      unitCount: quantity,
+      material: selectedMaterial,
+      frame: withFrame ? frameColor : 'None',
+    },
+  });
+
+  setAdded(true);
+  setTimeout(() => {
+    setAdded(false);
+    onClose();
+  }, 1200);
+};
   // The priced material list (shown with a frame) replaces the simple toggle, so only one is visible
   const showPricedMaterials = !isNoFrame && withFrame && materialPricing.length > 0;
   const total = price * quantity;

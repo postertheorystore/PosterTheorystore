@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../lib/api';
 import { Package, Heart, ChevronRight, ArrowRight, MapPin, User, X, Plus, Star, AlertTriangle, XCircle } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Link } from 'react-router-dom';
+import { Link,useLocation  } from 'react-router-dom';
 import { useWishlist } from '../context/WishlistContext';
 import ProductCard from '../components/ProductCard';
 
@@ -30,6 +30,10 @@ export default function Dashboard() {
   const [cancelModal, setCancelModal] = useState<number | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [couriers, setCouriers] = useState<any[]>([]);
+
+  const location = useLocation();
+  const [gettingLocation, setGettingLocation] = useState(false);
+  const [locationError, setLocationError] = useState('');
 
   // Profile panel
   const [showProfile, setShowProfile] = useState(false);
@@ -97,6 +101,108 @@ export default function Dashboard() {
   fetchWishlistProducts();
 }, [favourites]);
 
+const handleGetCurrentLocation = () => {
+  if (!navigator.geolocation) {
+    setLocationError('Your browser does not support location access.');
+    return;
+  }
+
+  setGettingLocation(true);
+  setLocationError('');
+
+  navigator.geolocation.getCurrentPosition(
+    async ({ coords }) => {
+      try {
+        const { latitude, longitude } = coords;
+
+        const response = await fetch(
+  `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&addressdetails=1&accept-language=en`
+    );
+
+        if (!response.ok) {
+          throw new Error('Unable to retrieve your address.');
+        }
+
+        const data = await response.json();
+        const address = data.address ?? {};
+
+        const road =
+          address.road ||
+          address.residential ||
+          address.pedestrian ||
+          address.street ||
+          '';
+
+        const houseNumber = address.house_number || '';
+
+        const line1 = [houseNumber, road].filter(Boolean).join(', ');
+
+        const line2 = [
+          address.neighbourhood ||
+          address.suburb ||
+          address.quarter ||
+          address.hamlet ||
+          '',
+          address.village || address.town || '',
+        ]
+          .filter(Boolean)
+          .filter((value, index, values) => values.indexOf(value) === index)
+          .join(', ');
+
+        const city =
+          address.city ||
+          address.town ||
+          address.village ||
+          address.municipality ||
+          address.county ||
+          '';
+
+        const state = address.state || '';
+        const pincode = (address.postcode || '').replace(/\D/g, '').slice(0, 6);
+
+        setAddrForm((prev) => ({
+          ...prev,
+          line1: line1 || data.name || '',
+          line2,
+          city,
+          state,
+          pincode,
+        }));
+
+        if (!line1 || !city || !state || pincode.length !== 6) {
+          setLocationError(
+            'Some address details could not be detected. Please complete the missing fields manually.'
+          );
+        } else {
+          setLocationError(
+            'Location detected! Verify the details before saving.'
+          );
+        }
+      } catch (error) {
+        console.error('Location lookup failed:', error);
+        setLocationError(
+          'Could not retrieve your address. Please enter it manually.'
+        );
+      } finally {
+        setGettingLocation(false);
+      }
+    },
+    (error) => {
+      setLocationError(
+        error.code === error.PERMISSION_DENIED
+          ? 'Location permission denied. Allow location access in your browser.'
+          : 'Could not detect your location. Please try again or enter the address manually.'
+      );
+      setGettingLocation(false);
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    }
+  );
+};
+
   useEffect(() => {
     if (user) {
       setProfileName(user.name || '');
@@ -110,6 +216,36 @@ export default function Dashboard() {
       setAddresses(res.data);
     } catch (err) { console.error(err); }
   };
+
+  useEffect(() => {
+  if (location.state?.activeTab !== 'addresses' || !token) return;
+
+  // Open Manage Profile, where the address section lives.
+  setShowProfile(true);
+
+  // Load addresses and open the form if none exist.
+  const openAddressSection = async () => {
+    try {
+      const res = await api.get('/api/profile/addresses', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const savedAddresses = Array.isArray(res.data) ? res.data : [];
+      setAddresses(savedAddresses);
+
+      if (savedAddresses.length === 0) {
+        setShowAddressForm(true);
+      }
+
+      // Clear the navigation state so it doesn't reopen unexpectedly.
+      window.history.replaceState({}, document.title, location.pathname);
+    } catch (error) {
+      console.error('Failed to load addresses:', error);
+    }
+  };
+
+  openAddressSection();
+}, [location.state, location.pathname, token]);
 
   useEffect(() => {
     if (showProfile && token) fetchAddresses();
@@ -181,7 +317,7 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto px-6">
         <header className="mb-20 flex flex-col md:flex-row justify-between items-end gap-10 border-b-4 border-z-border pb-12">
           <div>
-            <p className="section-label mb-4">THE_ARCHIVE_DASHBOARD</p>
+            
             <h1 className="font-display font-black text-6xl sm:text-7xl uppercase tracking-tighter   leading-none text-z-ink">
               HELLO, {user?.name || user?.email.split('@')[0]}
             </h1>
@@ -196,120 +332,9 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-16">
           {/* Main Content */}
           <div className="lg:col-span-8 space-y-24">
-            {/* Profile Panel */}
-            {showProfile && (
-              <motion.section initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="bg-z-paper border-2 border-z-border p-10 shadow-[8px_8px_0px_0px_var(--color-z-shadow)] relative">
-                <button onClick={() => setShowProfile(false)} className="absolute top-4 right-4 p-2 hover:bg-z-ink hover:text-white transition-all border-2 border-z-border"><X className="w-4 h-4" /></button>
-                <div className="flex items-center space-x-4 mb-8 pb-4 border-b-2 border-z-border">
-                  <User className="w-5 h-5" />
-                  <h2 className="section-label">MANAGE_PROFILE_</h2>
-                </div>
-                <div className="space-y-6 max-w-md">
-                  <div>
-                    <label className="text-[10px] font-mono uppercase tracking-[0.3em] text-z-muted mb-2 block font-black">NAME</label>
-                    <input value={profileName} onChange={e => setProfileName(e.target.value)} className="w-full bg-transparent border-b-2 border-z-border py-3 text-sm font-display font-bold uppercase focus:outline-none focus:border-z-ink" />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-mono uppercase tracking-[0.3em] text-z-muted mb-2 block font-black">PHONE (10 DIGITS)</label>
-                    <input value={profilePhone} onChange={e => setProfilePhone(e.target.value.replace(/\D/g, '').slice(0, 10))} className="w-full bg-transparent border-b-2 border-z-border py-3 text-sm font-display font-bold focus:outline-none focus:border-z-ink" placeholder="9876543210" maxLength={10} />
-
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-mono uppercase tracking-[0.3em] text-z-muted mb-2 block font-black">EMAIL</label>
-                    <p className="py-3 text-sm font-display font-bold uppercase text-z-muted">{user?.email}</p>
-                  </div>
-                  {profileMsg && <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-z-ink border-2 border-z-border px-4 py-2 inline-block">{profileMsg}</p>}
-                  <button onClick={handleProfileSave} disabled={profileSaving} className="sticker-btn bg-z-ink text-white">
-                    {profileSaving ? 'SAVING...' : 'SAVE_PROFILE_'}
-                  </button>
-                </div>
-
-                {/* Addresses inside Profile */}
-                <div className="mt-12 pt-8 border-t-2 border-z-border">
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center space-x-4">
-                      <MapPin className="w-5 h-5" />
-                      <h2 className="section-label">ADDRESS</h2>
-                    </div>
-                    {!showAddressForm && (
-                      <button onClick={() => { resetAddrForm(); setShowAddressForm(true); }} className="flex items-center gap-2 px-4 py-2 border-2 border-z-border font-mono text-[10px] font-bold hover:bg-z-ink hover:text-white transition-all uppercase">
-                        <Plus className="w-3 h-3" /> ADD_NEW
-                      </button>
-                    )}
-                  </div>
-
-                  {showAddressForm && (
-                    <div className="mb-8 p-6 border-2 border-dashed border-z-border bg-z-paper space-y-4">
-                      <p className="text-[10px] font-mono font-black uppercase tracking-widest mb-4">{editingAddress ? 'EDIT_ADDRESS' : 'NEW_ADDRESS'}</p>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[9px] font-mono uppercase text-z-muted font-black block mb-1">LABEL</label>
-                          <input value={addrForm.label} onChange={e => setAddrForm({ ...addrForm, label: e.target.value })} className="w-full border-b-2 border-z-border py-2 text-sm font-bold bg-transparent focus:outline-none" placeholder="Home" />
-                        </div>
-                        <div>
-                          <label className="text-[9px] font-mono uppercase text-z-muted font-black block mb-1">PINCODE (6 DIGITS)</label>
-                          <input value={addrForm.pincode} onChange={e => setAddrForm({ ...addrForm, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) })} className="w-full border-b-2 border-z-border py-2 text-sm font-bold bg-transparent focus:outline-none" placeholder="560001" maxLength={6} />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-[9px] font-mono uppercase text-z-muted font-black block mb-1">ADDRESS LINE 1</label>
-                        <input value={addrForm.line1} onChange={e => setAddrForm({ ...addrForm, line1: e.target.value })} className="w-full border-b-2 border-z-border py-2 text-sm font-bold bg-transparent focus:outline-none" placeholder="123, Street Name" />
-                      </div>
-                      <div>
-                        <label className="text-[9px] font-mono uppercase text-z-muted font-black block mb-1">ADDRESS LINE 2</label>
-                        <input value={addrForm.line2} onChange={e => setAddrForm({ ...addrForm, line2: e.target.value })} className="w-full border-b-2 border-z-border py-2 text-sm font-bold bg-transparent focus:outline-none" placeholder="Apt, Floor (optional)" />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[9px] font-mono uppercase text-z-muted font-black block mb-1">CITY</label>
-                          <input value={addrForm.city} onChange={e => setAddrForm({ ...addrForm, city: e.target.value })} className="w-full border-b-2 border-z-border py-2 text-sm font-bold bg-transparent focus:outline-none" placeholder="Bangalore" />
-                        </div>
-                        <div>
-                          <label className="text-[9px] font-mono uppercase text-z-muted font-black block mb-1">STATE</label>
-                          <input value={addrForm.state} onChange={e => setAddrForm({ ...addrForm, state: e.target.value })} className="w-full border-b-2 border-z-border py-2 text-sm font-bold bg-transparent focus:outline-none" placeholder="Karnataka" />
-                        </div>
-                      </div>
-                      <label className="flex items-center gap-2 cursor-pointer mt-2">
-                        <input type="checkbox" checked={addrForm.is_default} onChange={e => setAddrForm({ ...addrForm, is_default: e.target.checked })} className="w-4 h-4" />
-                        <span className="text-[10px] font-mono font-bold uppercase">SET_AS_DEFAULT</span>
-                      </label>
-                      <div className="flex gap-4 mt-4">
-                        <button onClick={handleAddressSave} disabled={addrSaving} className="sticker-btn bg-z-ink text-white">{addrSaving ? 'SAVING...' : 'SAVE_ADDRESS_'}</button>
-                        <button onClick={resetAddrForm} className="px-6 py-2 border-2 border-z-border font-mono text-[10px] font-bold hover:bg-z-ink hover:text-z-paper transition-all uppercase">CANCEL</button>
-                      </div>
-                    </div>
-                  )}
-
-                  {addresses.length > 0 ? (
-                    <div className="space-y-4">
-                      {addresses.map(addr => (
-                        <div key={addr.id} className="flex justify-between items-start p-6 border-2 border-z-border bg-z-paper/50 hover:bg-z-paper transition-all">
-                          <div>
-                            <div className="flex items-center gap-3 mb-2">
-                              <span className="text-[10px] font-mono font-black uppercase tracking-widest bg-z-ink text-white px-2 py-0.5">{addr.label}</span>
-                              {addr.is_default && <span className="flex items-center gap-1 text-[9px] font-mono font-bold uppercase text-z-muted"><Star className="w-3 h-3" />DEFAULT</span>}
-                            </div>
-                            <p className="text-sm font-display font-bold text-z-ink">{addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}</p>
-                            <p className="text-[11px] font-mono text-z-muted uppercase">{addr.city}, {addr.state} - {addr.pincode}</p>
-                          </div>
-                          <div className="flex gap-2">
-                            <button onClick={() => startEditAddress(addr)} className="px-3 py-1 border-2 border-z-border text-[9px] font-mono font-bold uppercase hover:bg-z-ink hover:text-white transition-all">EDIT</button>
-                            <button onClick={() => handleAddressDelete(addr.id)} className="px-3 py-1 border-2 border-z-border text-[9px] font-mono font-bold uppercase hover:bg-red-600 hover:text-white hover:border-red-600 transition-all">DEL</button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : !showAddressForm ? (
-                    <div className="text-center py-12 border-2 border-dashed border-z-border">
-                      <p className="font-display font-black text-xl uppercase tracking-tighter text-z-muted  ">NO_ADDRESS_SAVED</p>
-                      <p className="text-[10px] font-mono text-z-muted uppercase mt-2">Add an address to enable checkout</p>
-                    </div>
-                  ) : null}
-                </div>
-              </motion.section>
-            )}
+           
             {/* Wishlist */}
-{/* Wishlist */}
+{/* Wishlist
 <section>
   <div className="flex items-center justify-between mb-10 pb-4 border-b-2 border-z-border">
     <div className="flex items-center space-x-4">
@@ -353,7 +378,7 @@ export default function Dashboard() {
       </Link>
     </div>
   )}
-</section>
+</section> */}
 
 
             {/* Orders */}
@@ -388,9 +413,9 @@ export default function Dashboard() {
                       >
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
                           <div className="mb-6 sm:mb-0">
-                            <p className="text-[10px] font-mono uppercase tracking-widest text-z-muted mb-3 font-bold underline decoration-2 decoration-z-border">REF_ID: STUDIO-{order.id}</p>
-                            <p className="font-display font-black text-4xl text-z-ink tracking-tighter uppercase leading-none  "><span className="text-outline">&#8377;</span>{order.total.toLocaleString()}</p>
-                            <p className="text-[9px] font-mono font-bold uppercase text-z-muted mt-4 tracking-widest">RECORDED: {new Date(order.created_at).toLocaleDateString()}</p>
+
+                            <p className="font-display font-black text-4xl text-z-ink tracking-tighter uppercase leading-none  "><span className=" ">&#8377;</span>{order.total.toLocaleString()}</p>
+
                           </div>
                           <div className="flex items-center space-x-8 w-full sm:w-auto justify-between sm:justify-end">
                             <span className={`px-6 py-2 border-2 text-[10px] uppercase tracking-widest font-black shadow-[4px_4px_0px_0px_var(--color-z-shadow)] ${
@@ -540,33 +565,139 @@ export default function Dashboard() {
               )}
             </section>
 
-             {/* Designs */}
-             <section>
-              <div className="flex items-center space-x-4 mb-10 pb-4 border-b-2 border-z-border">
-                <Heart className="w-5 h-5 text-z-ink" />
-                <h2 className="section-label">SAVED_SKETCHES_</h2>
-              </div>
-              
-              {designs.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-10">
-                  {designs.map((design: any) => (
-                    <div key={design.id} className="group relative aspect-[3/4] bg-z-paper border-2 border-z-border p-8 flex flex-col items-center justify-center text-center shadow-[8px_8px_0px_0px_var(--color-z-shadow)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all">
-                        <div className="w-full h-full flex items-center justify-center bg-z-paper/30 border border-z-border/10">
-                          <p className="font-display font-black uppercase leading-tight tracking-tighter text-z-ink" style={{ fontSize: `${design.font_size / 3}px` }}>{design.text}</p>
-                        </div>
-                        <div className="absolute inset-0 bg-z-ink/90 backdrop-blur-sm flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 p-6">
-                             <p className="text-white text-[10px] uppercase font-mono tracking-widest mb-6 font-bold border-b border-white/30 pb-2">FORMAT: {design.size}</p>
-                             <button className="sticker-btn bg-z-paper text-z-ink w-full">RE-EDIT_</button>
-                        </div>
+             {/* Profile Panel */}
+            { (
+              <motion.section initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="bg-z-paper border-2 border-z-border p-10 shadow-[8px_8px_0px_0px_var(--color-z-shadow)] relative">
+                
+                <div className="flex items-center space-x-4 mb-8 pb-4 border-b-2 border-z-border">
+                  <User className="w-5 h-5" />
+                  <h2 className="section-label">MANAGE_PROFILE_</h2>
+                </div>
+                <div className="space-y-6 max-w-md">
+                  <div>
+                    <label className="text-[10px] font-mono uppercase tracking-[0.3em] text-z-muted mb-2 block font-black">NAME</label>
+                    <input value={profileName} onChange={e => setProfileName(e.target.value)} className="w-full bg-transparent border-b-2 border-z-border py-3 text-sm font-display font-bold uppercase focus:outline-none focus:border-z-ink" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-mono uppercase tracking-[0.3em] text-z-muted mb-2 block font-black">PHONE (10 DIGITS)</label>
+                    <input value={profilePhone} onChange={e => setProfilePhone(e.target.value.replace(/\D/g, '').slice(0, 10))} className="w-full bg-transparent border-b-2 border-z-border py-3 text-sm font-display font-bold focus:outline-none focus:border-z-ink" placeholder="9876543210" maxLength={10} />
+
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-mono uppercase tracking-[0.3em] text-z-muted mb-2 block font-black">EMAIL</label>
+                    <p className="py-3 text-sm font-display font-bold uppercase text-z-muted">{user?.email}</p>
+                  </div>
+                  {profileMsg && <p className="text-[10px] font-mono font-bold uppercase tracking-widest text-z-ink border-2 border-z-border px-4 py-2 inline-block">{profileMsg}</p>}
+                  <button onClick={handleProfileSave} disabled={profileSaving} className="sticker-btn bg-z-ink text-white">
+                    {profileSaving ? 'SAVING...' : 'SAVE_PROFILE_'}
+                  </button>
+                </div>
+
+                {/* Addresses inside Profile */}
+                <div className="mt-12 pt-8 border-t-2 border-z-border">
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center space-x-4">
+                      <MapPin className="w-5 h-5" />
+                      <h2 className="section-label">ADDRESS</h2>
                     </div>
-                  ))}
+                    {!showAddressForm && (
+                      <button onClick={() => { resetAddrForm(); setShowAddressForm(true); }} className="flex items-center gap-2 px-4 py-2 border-2 border-z-border font-mono text-[10px] font-bold hover:bg-z-ink hover:text-white transition-all uppercase">
+                        <Plus className="w-3 h-3" /> ADD_NEW
+                      </button>
+                      
+                    )}
+                  </div>
+
+                  {showAddressForm && (
+                    <div className="mb-8 p-6 border-2 border-dashed border-z-border bg-z-paper space-y-4">
+                      <button
+                          type="button"
+                          onClick={handleGetCurrentLocation}
+                          disabled={gettingLocation}
+                          className="w-full flex items-center justify-center gap-3 border-2 border-z-border px-4 py-3 font-mono text-xs font-bold uppercase hover:bg-z-ink hover:text-white transition-all disabled:opacity-50"
+                        >
+                          <MapPin className="w-4 h-4" />
+                          {gettingLocation
+                            ? 'DETECTING_LOCATION...'
+                            : 'USE_MY_CURRENT_LOCATION'}
+                        </button>
+
+                        {locationError && (
+                          <p className="text-xs font-mono mt-3 text-z-muted" role="status">
+                            {locationError}
+                          </p>
+                        )}
+                      <p className="text-[10px] font-mono font-black uppercase tracking-widest mb-4">{editingAddress ? 'EDIT_ADDRESS' : 'NEW_ADDRESS'}</p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[9px] font-mono uppercase text-z-muted font-black block mb-1">LABEL</label>
+                          <input value={addrForm.label} onChange={e => setAddrForm({ ...addrForm, label: e.target.value })} className="w-full border-b-2 border-z-border py-2 text-sm font-bold bg-transparent focus:outline-none" placeholder="Home" />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-mono uppercase text-z-muted font-black block mb-1">PINCODE (6 DIGITS)</label>
+                          <input value={addrForm.pincode} onChange={e => setAddrForm({ ...addrForm, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) })} className="w-full border-b-2 border-z-border py-2 text-sm font-bold bg-transparent focus:outline-none" placeholder="560001" maxLength={6} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-mono uppercase text-z-muted font-black block mb-1">ADDRESS LINE 1</label>
+                        <input value={addrForm.line1} onChange={e => setAddrForm({ ...addrForm, line1: e.target.value })} className="w-full border-b-2 border-z-border py-2 text-sm font-bold bg-transparent focus:outline-none" placeholder="123, Street Name" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-mono uppercase text-z-muted font-black block mb-1">ADDRESS LINE 2</label>
+                        <input value={addrForm.line2} onChange={e => setAddrForm({ ...addrForm, line2: e.target.value })} className="w-full border-b-2 border-z-border py-2 text-sm font-bold bg-transparent focus:outline-none" placeholder="Apt, Floor (optional)" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[9px] font-mono uppercase text-z-muted font-black block mb-1">CITY</label>
+                          <input value={addrForm.city} onChange={e => setAddrForm({ ...addrForm, city: e.target.value })} className="w-full border-b-2 border-z-border py-2 text-sm font-bold bg-transparent focus:outline-none" placeholder="Bangalore" />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-mono uppercase text-z-muted font-black block mb-1">STATE</label>
+                          <input value={addrForm.state} onChange={e => setAddrForm({ ...addrForm, state: e.target.value })} className="w-full border-b-2 border-z-border py-2 text-sm font-bold bg-transparent focus:outline-none" placeholder="Karnataka" />
+                        </div>
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer mt-2">
+                        <input type="checkbox" checked={addrForm.is_default} onChange={e => setAddrForm({ ...addrForm, is_default: e.target.checked })} className="w-4 h-4" />
+                        <span className="text-[10px] font-mono font-bold uppercase">SET_AS_DEFAULT</span>
+                      </label>
+                      <div className="flex gap-4 mt-4">
+                        <button onClick={handleAddressSave} disabled={addrSaving} className="sticker-btn bg-z-ink text-white">{addrSaving ? 'SAVING...' : 'SAVE_ADDRESS_'}</button>
+                        <button onClick={resetAddrForm} className="px-6 py-2 border-2 border-z-border font-mono text-[10px] font-bold hover:bg-z-ink hover:text-z-paper transition-all uppercase">CANCEL</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {addresses.length > 0 ? (
+                    <div className="space-y-4">
+                      {addresses.map(addr => (
+                        <div key={addr.id} className="flex justify-between items-start p-6 border-2 border-z-border bg-z-paper/50 hover:bg-z-paper transition-all">
+                          <div>
+                            <div className="flex items-center gap-3 mb-2">
+                              <span className="text-[10px] font-mono font-black uppercase tracking-widest bg-z-ink text-white px-2 py-0.5">{addr.label}</span>
+                              {addr.is_default && <span className="flex items-center gap-1 text-[9px] font-mono font-bold uppercase text-z-muted"><Star className="w-3 h-3" />DEFAULT</span>}
+                            </div>
+                            <p className="text-sm font-display font-bold text-z-ink">{addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}</p>
+                            <p className="text-[11px] font-mono text-z-muted uppercase">{addr.city}, {addr.state} - {addr.pincode}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => startEditAddress(addr)} className="px-3 py-1 border-2 border-z-border text-[9px] font-mono font-bold uppercase hover:bg-z-ink hover:text-white transition-all">EDIT</button>
+                            <button onClick={() => handleAddressDelete(addr.id)} className="px-3 py-1 border-2 border-z-border text-[9px] font-mono font-bold uppercase hover:bg-red-600 hover:text-white hover:border-red-600 transition-all">DEL</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : !showAddressForm ? (
+                    <div className="text-center py-12 border-2 border-dashed border-z-border">
+                      <p className="font-display font-black text-xl uppercase tracking-tighter text-z-muted  ">NO_ADDRESS_SAVED</p>
+                      <p className="text-[10px] font-mono text-z-muted uppercase mt-2">Add an address to enable checkout</p>
+                    </div>
+                  ) : null}
                 </div>
-              ) : (
-                <div className="bg-z-paper border-2 border-dashed border-z-border p-12 text-center">
-                  <p className="font-display font-black text-xl uppercase tracking-tighter text-z-muted   leading-none border-b-2 border-z-border inline-block pb-1">NO_SKETCHES_LOGGED</p>
-                </div>
-              )}
-            </section>
+              </motion.section>
+            )}
+
+             {/* Designs */}
+             
           </div>
           
 
@@ -581,21 +712,15 @@ export default function Dashboard() {
                    </div>
                    <div>
                       <p className="text-lg font-display font-black truncate w-40 uppercase tracking-tighter text-z-ink">{user?.name || user?.email.split('@')[0]}</p>
-                      <p className="text-[9px] font-mono text-z-muted uppercase tracking-widest font-black bg-z-paper border border-z-border px-2 py-0.5 inline-block mt-1">LVL: STANDARD_CURATOR</p>
                    </div>
                 </div>
-                <div className="space-y-4 font-display font-bold text-sm uppercase tracking-tight text-z-ink">
-                  <button onClick={() => { setShowProfile(!showProfile); if (!showProfile) fetchAddresses(); }} className="w-full text-left py-3 px-4 border-2 border-transparent hover:border-z-border hover:bg-z-paper transition-all flex justify-between items-center group">
-                    <span>MANAGE_PROFILE_</span>
-                    <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
-                </div>
+                
               </div>
             </div>
 
             <div className="bg-z-ink p-10 border-2 border-z-border text-z-paper relative shadow-[12px_12px_0px_0px_var(--color-z-shadow)]">
                <div className="relative z-10">
-                 <h3 className="font-display font-black text-4xl uppercase tracking-tighter   mb-8 leading-none">JOIN_THE<br/><span className="text-outline">COLLECTIVE</span></h3>
+                 <h3 className="font-display font-black text-4xl uppercase tracking-tighter   mb-8 leading-none">JOIN_THE<br/><span className=" ">COLLECTIVE</span></h3>
                  <p className="text-[10px] font-mono font-bold text-z-paper/60 mb-10 leading-relaxed uppercase tracking-widest">Share the vision. Your referral provides 20% off and adds credits to your archive.</p>
                  <button className="sticker-btn bg-z-paper text-z-ink w-full font-black">GENERATE_INVITE_</button>
                </div>

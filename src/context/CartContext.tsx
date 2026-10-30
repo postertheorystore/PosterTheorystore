@@ -3,6 +3,9 @@ import { generateThumbnail, saveImage, getImage, deleteImage, clearAllImages } f
 import api from '../lib/api';
 import { useAuth } from './AuthContext';
 
+
+type PricingCategory = 'framed_photo' | 'print_only';
+
 interface CartItem {
   cartItemId: string;
   id: number;
@@ -12,6 +15,11 @@ interface CartItem {
   quantity: number;
   collection: string;
   size: string;
+
+  // New category-based pricing fields
+  priceCategory?: PricingCategory;
+  sizeId?: number;
+
   designId?: string | number;
   customSpecs?: any;
   isCustom?: boolean;
@@ -219,7 +227,20 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    setCart(prev => [...prev, { ...product, image: displayImage, quantity: product.quantity || 1, cartItemId, isCustom }]);
+   setCart(prev => [
+  ...prev,
+  {
+    ...product,
+    image: displayImage,
+    quantity: product.quantity || 1,
+    cartItemId,
+    isCustom,
+
+    // Preserve category-based pricing information
+    priceCategory: product.priceCategory,
+    sizeId: product.sizeId,
+  },
+]);
   };
 
   const removeFromCart = async (cartItemId: string) => {

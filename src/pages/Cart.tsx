@@ -58,14 +58,24 @@ export default function Cart() {
     try {
       const res = await api.get('/api/profile/check', { headers: { Authorization: `Bearer ${token}` } });
       if (!res.data.complete) {
-        const missing = res.data.missing;
-        const parts = [];
-        if (missing.name) parts.push('name');
-        if (missing.phone) parts.push('phone number');
-        if (missing.address) parts.push('delivery address');
-        setProfileError(`Please complete your profile first: ${parts.join(', ')}. Go to Dashboard &rarr; Manage Profile / Addresses.`);
+      const missing = res.data.missing;
+
+      // Address is missing: open the address section directly.
+     if (missing.address) {
+        setProfileError('No delivery address found. Please add an address to continue checkout.');
         return;
       }
+
+      // Name or phone is missing: ask the user to complete their profile.
+      const parts: string[] = [];
+      if (missing.name) parts.push('name');
+      if (missing.phone) parts.push('phone number');
+
+      setProfileError(
+        `Please complete your profile first: ${parts.join(', ')}.`
+      );
+      return;
+    }
       await fetchAddresses();
       setStep('address');
     } catch (err) {
@@ -120,9 +130,9 @@ export default function Cart() {
       <div className="max-w-7xl mx-auto">
         <header className="mb-20 border-b-4 border-z-border pb-8 flex items-baseline justify-between">
           <h1 className="font-display font-black text-6xl md:text-8xl uppercase tracking-tighter   leading-none">
-            {step === 'cart' && <><span className="text-outline">Your</span>_Bag_</>}
-            {step === 'address' && <>Select_<span className="text-outline">Address</span></>}
-            {step === 'confirm' && <>Confirm_<span className="text-outline">Order</span></>}
+            {step === 'cart' && <><span className="">Your</span>_Bag_</>}
+            {step === 'address' && <>Select_<span className="">Address</span></>}
+            {step === 'confirm' && <>Confirm_<span className="">Order</span></>}
           </h1>
           <p className="font-mono text-[14px] font-bold text-z-ink border-2 border-z-border px-4 py-1">[{cart.reduce((sum, i) => sum + i.quantity, 0)}] POSTERS</p>
         </header>
@@ -222,11 +232,26 @@ export default function Cart() {
                 </div>
 
                 {profileError && (
-                  <div className="bg-red-50 border-2 border-red-300 p-4 text-[10px] font-mono font-bold uppercase text-red-700 mb-6">
-                    {profileError}
-                    <Link to="/dashboard" className="block mt-3 sticker-btn bg-z-ink text-z-paper text-center text-[10px] py-2">GO TO MANAGE PROFILE</Link>
-                  </div>
-                )}
+                        <div className="mt-4 border-2 border-red-400 bg-red-50 p-5">
+                          <p className="text-sm font-mono font-bold text-red-700">
+                            {profileError}
+                          </p>
+
+                          {profileError.toLowerCase().includes('address') && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                navigate('/dashboard', {
+                                  state: { activeTab: 'addresses' },
+                                })
+                              }
+                              className="mt-4 sticker-btn bg-z-ink text-z-paper"
+                            >
+                              ADD DELIVERY ADDRESS
+                            </button>
+                          )}
+                        </div>
+                      )}
 
                 <button onClick={handleProceedToAddress} className="w-full sticker-btn py-5 text-sm bg-z-ink text-z-paper text-center">
                   PROCEED TO CHECKOUT

@@ -15,6 +15,20 @@ import {
 export interface FramePriceEntry { id: number; size_name: string; price: number; }
 export interface MaterialPriceEntry { id: number; material: string; extra_price: number; }
 
+
+export type PricingCategory = 'framed_photo' | 'print_only';
+
+export interface CategoryPriceEntry {
+  id: number;
+  category: PricingCategory;
+  size_id: number;
+  size_name: string;
+  width_mm: number;
+  height_mm: number;
+  price: number;
+}
+
+
 export function useCustomizeConfig() {
   const [sizes, setSizes] = useState<SizeConfig[]>(DEFAULT_SIZES);
   const [layouts, setLayouts] = useState<LayoutConfig[]>([{ name: 'Single', panel_count: 1 }]);
@@ -25,12 +39,20 @@ export function useCustomizeConfig() {
   const [portraitOnly, setPortraitOnly] = useState<string[]>(PORTRAIT_ONLY_SIZES);
   const [framePricing, setFramePricing] = useState<FramePriceEntry[]>([]);
   const [materialPricing, setMaterialPricing] = useState<MaterialPriceEntry[]>([]);
+  const [categoryPricing, setCategoryPricing] =
+  useState<CategoryPriceEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    axios.get<CustomizeConfig & { framePricing: FramePriceEntry[]; materialPricing: MaterialPriceEntry[] }>('/api/products/customize-config')
+    axios.get<
+        CustomizeConfig & {
+          framePricing: FramePriceEntry[];
+          materialPricing: MaterialPriceEntry[];
+          categoryPricing: CategoryPriceEntry[];
+        }
+      >('/api/products/customize-config')
       .then(res => {
-        const { sizes: dbSizes, layouts: dbLayouts, pricing, framePricing: fp, materialPricing: mp } = res.data;
+        const { sizes: dbSizes, layouts: dbLayouts, pricing, framePricing: fp, materialPricing: mp,categoryPricing: cp, } = res.data;
         if (dbSizes.length > 0) {
           setSizes(dbSizes);
           setPaperSizes(buildPaperSizes(dbSizes));
@@ -44,6 +66,7 @@ export function useCustomizeConfig() {
         }
         if (fp) setFramePricing(fp);
         if (mp) setMaterialPricing(mp);
+        if (cp) setCategoryPricing(cp);
       })
       .catch(() => {
         setSizePrices({ 'A3': 199, 'A4': 129, 'A5': 99, 'A6': 69, 'Polaroid': 49, 'Pocket': 39 });
@@ -51,5 +74,5 @@ export function useCustomizeConfig() {
       .finally(() => setLoading(false));
   }, []);
 
-  return { sizes, layouts, paperSizes, customMargins, sizePrices, layoutPrices, portraitOnly, framePricing, materialPricing, loading };
+  return { sizes, layouts, paperSizes, customMargins, sizePrices, layoutPrices, portraitOnly, framePricing, materialPricing, categoryPricing, loading };
 }
