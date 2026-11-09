@@ -12,6 +12,7 @@ import {
   getCustomRequests, updateCustomRequestStatus,
   getCoupons, createCoupon, updateCoupon, deleteCoupon,
   getCustomers,
+  getPromotionSettings,updatePromotionSettings,
   getHomepageConfig, updateHomepageConfig, uploadHomepageImage,
   getCouriers, createCourier, updateCourier, deleteCourier,
   getFramePricing, upsertFramePricing, deleteFramePricing,
@@ -119,6 +120,10 @@ router.delete("/frame-pricing/:id", deleteFramePricing);
 // Material Pricing
 router.get("/material-pricing", getMaterialPricing);
 router.post("/material-pricing", upsertMaterialPricing);
+
+// Promotion Management
+router.get("/promotions", getPromotionSettings);
+router.put("/promotions", updatePromotionSettings);
 
 // Sales
 router.get("/sales", getSales);

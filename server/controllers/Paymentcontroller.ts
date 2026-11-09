@@ -15,6 +15,7 @@ import {
   getCashfreeOrderPayments,
   verifyWebhookSignature,
 } from "../services/cashfree.ts";
+import { generateAndEmailInvoice } from "../services/invoiceService.ts";
 
 /* ------------------------------------------------------------------ */
 /* helpers                                                             */
@@ -36,16 +37,35 @@ const stable = (v: any): string => {
  * Identifies "this exact cart going to this exact address". Client prices and
  * images are deliberately excluded (prices are server-decided, images are huge).
  */
-const fingerprintOf = (items: any[], addressId: number) => {
+const fingerprintOf = (
+  items: any[],
+  addressId: number,
+  freeItemSelections: any[] = []
+) => {
   const slim = items.map((i) => ({
-    cartItemId: i.cartItemId ?? null,
-    id: i.id ?? null,
-    title: i.title ?? null,
-    quantity: Math.max(1, Math.min(100, parseInt(i.quantity) || 1)),
-    size: i.size ?? null,
-    customSpecs: i.customSpecs ?? null,
-  }));
-  return crypto.createHash("sha256").update(stable({ items: slim, addressId })).digest("hex");
+      cartItemId: i.cartItemId ?? null,
+      id: i.id ?? null,
+      title: i.title ?? null,
+      quantity: Math.max(1, Math.min(100, parseInt(i.quantity) || 1)),
+      size: i.size ?? null,
+      customSpecs: i.customSpecs ?? null,
+
+      // Promotion identity must be part of the checkout fingerprint.
+      promotionFree: i.promotionFree === true,
+      promotionId: i.promotionId ?? null,
+      promotionSize: i.promotionSize ?? null,
+    }));
+  const selections = [...freeItemSelections]
+    .map((selection) => ({
+      cartItemId: String(selection.cartItemId),
+      quantity: Number(selection.quantity),
+    }))
+    .sort((a, b) => a.cartItemId.localeCompare(b.cartItemId));
+
+  return crypto
+    .createHash("sha256")
+    .update(stable({ items: slim, addressId, freeItemSelections: selections }))
+    .digest("hex");
 };
 
 const sameAmount = (a: unknown, b: unknown) => Math.abs(Number(a) - Number(b)) < 0.005;
@@ -66,12 +86,6 @@ const findOpenOrder = async (userId: number, fingerprint: string) => {
   return rows[0] || null;
 };
 
-const gatewayErrorResponse = (err: unknown, res: Response, label: string) => {
-  console.error(`${label}:`, err);
-  if (err instanceof CashfreeConfigError) {
-    return res.status(500).json({ error: "Payment gateway is not configured. Please contact support." });
-  }
- 
 const gatewayErrorResponse = (
   err: unknown,
   res: Response,
@@ -86,7 +100,6 @@ const gatewayErrorResponse = (
   }
 
   if (err instanceof CashfreeApiError) {
-    // Diagnostic only: do not log API secrets or authorization headers.
     console.error(`[${label}] Cashfree API error:`, err);
 
     return res.status(502).json({
@@ -100,34 +113,69 @@ const gatewayErrorResponse = (
     error: "Something went wrong with the payment. Please try again.",
   });
 };
+ 
 
-};
 
 /* ------------------------------------------------------------------ */
 /* payment state machine (single source of truth for paid / failed)    */
 /* ------------------------------------------------------------------ */
 
-const markOrderPaid = async (order: any, payment: CashfreePayment | undefined) => {
+const markOrderPaid = async (
+  order: any,
+  payment: CashfreePayment | undefined
+) => {
   const client = await pool.connect();
   let updated: any = null;
+
   try {
     await client.query("BEGIN");
-    // Conditional update => only ONE caller (verify vs webhook) ever "wins".
+
+    // Only one caller (verify or webhook) can mark this order as paid.
     const r = await client.query(
       `UPDATE orders
-       SET payment_status = 'paid', status = 'order_placed', paid_at = NOW(),
-           cashfree_payment_id = $2, payment_failure_reason = NULL, updated_at = NOW()
+       SET payment_status = 'paid',
+           status = 'order_placed',
+           paid_at = NOW(),
+           cashfree_payment_id = $2,
+           payment_failure_reason = NULL,
+           updated_at = NOW()
        WHERE id = $1 AND payment_status <> 'paid'
        RETURNING *`,
-      [order.id, payment?.cf_payment_id != null ? String(payment.cf_payment_id) : null]
+      [
+        order.id,
+        payment?.cf_payment_id != null
+          ? String(payment.cf_payment_id)
+          : null,
+      ]
     );
+
     updated = r.rows[0] || null;
+
     if (updated) {
       await client.query(
-        "INSERT INTO order_status_history (order_id, status, note) VALUES ($1, 'order_placed', 'Payment confirmed via Cashfree')",
+        `INSERT INTO order_status_history (order_id, status, note)
+         VALUES ($1, 'order_placed', 'Payment confirmed via Cashfree')`,
         [order.id]
       );
+
+      if (updated.coupon_id) {
+        const used = await client.query(
+          `UPDATE coupons
+           SET used_count = used_count + 1
+           WHERE id = $1
+             AND (max_uses = 0 OR used_count < max_uses)
+           RETURNING id`,
+          [updated.coupon_id]
+        );
+
+        if (used.rowCount === 0) {
+          console.warn(
+            `[coupon] limit reached at payment time order=${updated.id} coupon=${updated.coupon_id}`
+          );
+        }
+      }
     }
+
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");
@@ -136,29 +184,26 @@ const markOrderPaid = async (order: any, payment: CashfreePayment | undefined) =
     client.release();
   }
 
-        if (updated.coupon_id) {
-        // Atomic cap: two simultaneous payments can never both take the last use.
-        const used = await client.query(
-          `UPDATE coupons SET used_count = used_count + 1
-           WHERE id = $1 AND (max_uses = 0 OR used_count < max_uses)
-           RETURNING id`,
-          [updated.coupon_id]
-        );
-        if (used.rowCount === 0) {
-          // Coupon ran out between checkout and payment. The customer already paid the
-          // price we showed them, so we honour the order and just flag it.
-          console.warn(`[coupon] limit reached at payment time order=${updated.id} coupon=${updated.coupon_id}`);
-        }
-      }
-
-  // Side effects run once, by whoever flipped the order to paid.
+  // Run side effects only once, after the order is successfully marked paid.
   if (updated) {
     try {
-      const items = typeof updated.items === "string" ? JSON.parse(updated.items) : updated.items || [];
-      await recordProductOrderEvents(updated.id, updated.user_id, items);
+      const items =
+        typeof updated.items === "string"
+          ? JSON.parse(updated.items)
+          : updated.items || [];
+
+      await recordProductOrderEvents(
+        updated.id,
+        updated.user_id,
+        items
+      );
     } catch (err) {
       console.error("Failed to record product order events:", err);
     }
+  }
+    // Generate and email invoice independently of payment confirmation.
+  if (updated) {
+    await generateAndEmailInvoice(updated.id);
   }
   return updated;
 };
@@ -237,38 +282,60 @@ export const createPayment = async (req: any, res: Response) => {
     return res.status(400).json({ error: parsed.error.issues[0].message });
   }
 
-  const { items, address_id } = parsed.data as { items: any; address_id: number };
-  const userId: number = req.user.id;
+  const {
+  items,
+  address_id,
+  freeItemSelections,
+} = parsed.data;
+
+
+const userId: number = req.user.id;
 
   try {
     const rawItems = Array.isArray(items) ? items : JSON.parse(items);
 
     // 1) Validate + price on the server. The amount below is the ONLY amount ever charged.
-    const quote = await prepareOrder(userId, rawItems, address_id, { uploadImages: false });
+    const quote = await prepareOrder(userId, rawItems, address_id, { uploadImages: false },freeItemSelections);
    if ("status" in quote) {
   return res.status(quote.status).json({
     error: quote.error,
   });
 }
-    const fingerprint = fingerprintOf(rawItems, address_id);
+    const fingerprint = fingerprintOf(
+  rawItems,
+  address_id,
+  freeItemSelections
+);
 
         // 1b) Optional coupon, checked against the SERVER subtotal.
     const couponCode = normalizeCouponCode(req.body?.coupon_code);
+
     let coupon: PublicCoupon | null = null;
     let discount = 0;
-    let payable = quote.serverTotal;
-    if (couponCode) {
-      const check = await evaluateCoupon(couponCode, quote.serverTotal);
-      if ("status" in check) {
-        return res.status(check.status).json({
-          error: check.error,
-          coupon_invalid: true,
-        });
-      }
-      coupon = check.coupon;
-      discount = check.discount;
-      payable = check.finalAmount;
-    }
+
+    let deliveryCharge = quote.deliveryCharge;
+    let payable = quote.serverTotal + deliveryCharge;
+
+if (couponCode) {
+  const check = await evaluateCoupon(couponCode, quote.serverTotal);
+
+  if ("status" in check) {
+    return res.status(check.status).json({
+      error: check.error,
+      coupon_invalid: true,
+    });
+  }
+
+  coupon = check.coupon;
+  discount = check.discount;
+
+  // Apply free shipping when the coupon supports it.
+  if (coupon.free_shipping) {
+    deliveryCharge = 0;
+  }
+
+  payable = check.finalAmount + deliveryCharge;
+}
 
     // 2) This exact cart was already paid moments ago (double submit / back button).
     const paidDup = await pool.query(
@@ -315,7 +382,7 @@ export const createPayment = async (req: any, res: Response) => {
 
     // 4) No open order: create it (this is where custom images go to Cloudinary).
     if (!order) {
-      const full = await prepareOrder(userId, rawItems, address_id, { uploadImages: true });
+      const full = await prepareOrder(userId, rawItems, address_id, { uploadImages: true },freeItemSelections);
       if ("status" in full) {
         return res.status(full.status).json({
           error: full.error,
@@ -324,12 +391,27 @@ export const createPayment = async (req: any, res: Response) => {
 
       try {
           const ins = await pool.query(
-          `INSERT INTO orders (user_id, total, status, items, address_id, payment_status, payment_gateway,
-                               checkout_fingerprint, coupon_id, coupon_code, coupon_discount)
-           VALUES ($1, $2, 'pending_payment', $3, $4, 'pending', 'cashfree', $5, $6, $7, $8)
-           RETURNING *`,
+         `INSERT INTO orders (
+              user_id,
+              total,
+              status,
+              items,
+              address_id,
+              payment_status,
+              payment_gateway,
+              checkout_fingerprint,
+              coupon_id,
+              coupon_code,
+              coupon_discount,
+              delivery_charge
+            )
+            VALUES (
+              $1, $2, 'pending_payment', $3, $4, 'pending', 'cashfree',
+              $5, $6, $7, $8, $9
+            )
+            RETURNING *`,
           [userId, payable, JSON.stringify(full.processedItems), address_id, fingerprint,
-           coupon?.id ?? null, coupon?.code ?? null, discount]
+           coupon?.id ?? null, coupon?.code ?? null, discount, deliveryCharge]
         );
         order = ins.rows[0];
       } catch (err: any) {
@@ -387,12 +469,15 @@ export const createPayment = async (req: any, res: Response) => {
 
     // Only what the browser needs to launch Cashfree checkout. No secrets.
     return res.json({
-      order_id: order.id,
-      cashfree_order_id: cashfreeOrderId,
-      payment_session_id: paymentSessionId,
-      amount: Number(order.total),
-      environment: getCashfreeEnvironment(),
-    });
+    order_id: order.id,
+    cashfree_order_id: cashfreeOrderId,
+    payment_session_id: paymentSessionId,
+    subtotal: quote.serverTotal,
+    delivery_charge: Number(order.delivery_charge ?? deliveryCharge),
+    coupon_discount: discount,
+    amount: Number(order.total),
+    environment: getCashfreeEnvironment(),
+  });
   } catch (err) {
     return gatewayErrorResponse(err, res, "Create payment error");
   }
@@ -404,23 +489,43 @@ export const createPayment = async (req: any, res: Response) => {
 
 export const verifyPayment = async (req: any, res: Response) => {
   const cfOrderId = String(req.params.cashfreeOrderId || "");
+
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(cfOrderId)) {
-    return res.status(400).json({ error: "Invalid payment reference." });
+    return res.status(400).json({
+      error: "Invalid payment reference.",
+    });
   }
 
   try {
-    // Scoped to the authenticated user: nobody can poll someone else's order.
-    const { rows } = await pool.query("SELECT * FROM orders WHERE cashfree_order_id = $1 AND user_id = $2", [
-      cfOrderId,
-      req.user.id,
-    ]);
+    // Cashfree order ID identifies the existing order.
+    // Payment status is always verified server-to-server with Cashfree.
+    const { rows } = await pool.query(
+      `SELECT * FROM orders
+       WHERE cashfree_order_id = $1`,
+      [cfOrderId]
+    );
+
     const order = rows[0];
-    if (!order) return res.status(404).json({ error: "Payment not found." });
+
+    if (!order) {
+      return res.status(404).json({
+        error: "Payment not found.",
+      });
+    }
 
     const result = await syncPaymentStatus(order);
-    return res.json({ state: result.state, reason: result.reason, order_id: order.id });
+
+    return res.json({
+      state: result.state,
+      reason: result.reason,
+      order_id: order.id,
+    });
   } catch (err) {
-    return gatewayErrorResponse(err, res, "Verify payment error");
+    return gatewayErrorResponse(
+      err,
+      res,
+      "Verify payment error"
+    );
   }
 };
 

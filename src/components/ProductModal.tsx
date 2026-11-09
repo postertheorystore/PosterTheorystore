@@ -13,6 +13,16 @@ interface Props {
   onProductSelect?: (product: any) => void;
 }
 
+interface Props {
+  product: any;
+  onClose: () => void;
+  onProductSelect?: (product: any) => void;
+  promotionSelection?: {
+    size: string;
+    promotionId: number;
+  };
+}
+
 type Config = ReturnType<typeof useCustomizeConfig>;
 
 const SINGLE_ONLY_SIZES = ['Polaroid', 'Pocket'];
@@ -66,7 +76,7 @@ const getItemImage = (item: any): string =>
 /* =====================================================================
    Outer shell: portal, backdrop, bottom sheet, Escape, scroll lock, drag
    ===================================================================== */
-export default function ProductModal({ product, onClose, onProductSelect }: Props) {
+export default function ProductModal({ product, onClose, onProductSelect, promotionSelection }: Props) {
   // Loaded once here so swapping products doesn't refetch the config
   const config = useCustomizeConfig();
   const dragControls = useDragControls();
@@ -157,7 +167,7 @@ export default function ProductModal({ product, onClose, onProductSelect }: Prop
           animate={{ opacity: 1 }}
           transition={{ duration: 0.25 }}
         >
-          <ProductDetails product={product} config={config} onClose={onClose} onProductSelect={onProductSelect} />
+          <ProductDetails product={product} config={config} onClose={onClose} onProductSelect={onProductSelect} promotionSelection={promotionSelection} />
         </motion.div>
       </motion.div>
     </div>,
@@ -173,11 +183,16 @@ function ProductDetails({
   config,
   onClose,
   onProductSelect,
+  promotionSelection,
 }: {
   product: any;
   config: Config;
   onClose: () => void;
   onProductSelect?: (product: any) => void;
+  promotionSelection?: {
+    size: string;
+    promotionId: number;
+  };
 }) {
   const { addToCart } = useCart();
   const { sizes, layouts, sizePrices, portraitOnly, framePricing, materialPricing,categoryPricing } = config;
@@ -189,7 +204,7 @@ function ProductDetails({
   type PricingCategory = 'framed_photo' | 'print_only';
 
   const [priceCategory, setPriceCategory] = useState<PricingCategory>('print_only');
-  const [selectedSize, setSelectedSize] = useState('A4');
+  const [selectedSize, setSelectedSize] = useState( promotionSelection?.size || 'A4');
   const [selectedLayout, setSelectedLayout] = useState('Single');
   const [printStyle, setPrintStyle] = useState<'full-bleed' | 'white-margin'>('full-bleed');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>(
@@ -201,6 +216,17 @@ function ProductDetails({
   const [selectedMaterial, setSelectedMaterial] = useState('PAPER POSTER');
   const [metallicThickness, setMetallicThickness] = useState<'0.45mm' | '1mm'>('0.45mm');
   const [withFrame, setWithFrame] = useState(false);
+
+  const isPromotionSelection = !!promotionSelection;
+
+useEffect(() => {
+  if (!promotionSelection) return;
+
+  setSelectedSize(promotionSelection.size);
+  setSelectedMaterial('PAPER POSTER');
+  setWithFrame(false);
+  setQuantity(1);
+}, [promotionSelection?.size]);
   const [frameColor, setFrameColor] = useState<'Black' | 'White'>('Black');
 
   const images: string[] = useMemo(() => {
@@ -254,9 +280,34 @@ function ProductDetails({
 
   // Without Frame: hide frame_only sizes. With Frame: hide sizes with no frame_pricing entry.
   const visibleSizes = useMemo(() => {
-    if (withFrame) return availableSizes.filter((s) => framePricing.some((f) => f.size_name === s.name));
-    return availableSizes.filter((s) => !s.frame_only);
-  }, [availableSizes, withFrame, framePricing]);
+  // In reward mode, only allow the size earned by the promotion.
+  if (promotionSelection) {
+    return availableSizes.filter(
+      (s) =>
+        s.name === promotionSelection.size &&
+        !s.frame_only
+    );
+  }
+
+  if (withFrame) {
+    return availableSizes.filter((s) =>
+      framePricing.some((f) => f.size_name === s.name)
+    );
+  }
+
+  return availableSizes.filter((s) => !s.frame_only);
+}, [
+  availableSizes,
+  withFrame,
+  framePricing,
+  promotionSelection?.size,
+]);
+
+  const promotionSizeAvailable = promotionSelection
+  ? availableSizes.some(
+      (s) => s.name === promotionSelection.size && !s.frame_only
+    )
+  : true;
 
   const availableLayouts = useMemo(() => {
     if (productLayoutIds.length === 0) return [];
@@ -330,40 +381,66 @@ const pricePerSheet =
 
 const price = pricePerSheet * panelCount;
 
+const isFreeRewardSelection =
+  !!promotionSelection &&
+  promotionSizeAvailable &&
+  selectedSize === promotionSelection.size &&
+  selectedMaterial === 'PAPER POSTER' &&
+  !withFrame;
+
+const displayPrice = isFreeRewardSelection ? 0 : price;
+
   const nextImg = () => setCurrentImg((prev) => (prev + 1) % images.length);
   const prevImg = () => setCurrentImg((prev) => (prev - 1 + images.length) % images.length);
 
-  const handleAddToCart = () => {
+ const handleAddToCart = () => {
   const selectedSizeObj = sizes.find(
     (s) => s.name === selectedSize
   );
+  console.log("PROMOTION DEBUG:", {
+  selectedSize,
+  selectedMaterial,
+  withFrame,
+  priceCategory: withFrame ? "framed_photo" : "print_only",
+  sizeId: selectedSizeObj?.id,
+  quantity,
+});
 
-  addToCart({
-    id: product.id,
-    title: product.title,
-    price,
-    image: images[0],
-    collection: product.collection_name || '',
-    size: `${selectedSize} ${orientation} - ${selectedLayout}`,
-    quantity,
+addToCart({
+  id: product.id,
+  title: product.title,
+  price: isFreeRewardSelection ? 0 : price,
+  originalPrice: price,
+  image: images[0],
+  collection: product.collection_name || '',
+  size: `${selectedSize} ${orientation} - ${selectedLayout}`,
+  quantity,
 
-    // New category-based pricing data
-    priceCategory: withFrame ? 'framed_photo' : 'print_only',
-    sizeId: selectedSizeObj?.id,
+  priceCategory: withFrame ? 'framed_photo' : 'print_only',
+  sizeId: selectedSizeObj?.id,
 
-    customSpecs: {
-      size: selectedSize,
-      orientation,
-      layout: selectedLayout,
-      panelCount,
-      printStyle,
-      unitCount: quantity,
-      material: selectedMaterial,
-      frame: withFrame ? frameColor : 'None',
-    },
-  });
+  customSpecs: {
+    size: selectedSize,
+    orientation,
+    layout: selectedLayout,
+    panelCount,
+    printStyle,
+    unitCount: quantity,
+    material: selectedMaterial,
+    frame: withFrame ? frameColor : 'None',
+  },
+
+  promotionFree: isFreeRewardSelection,
+  promotionId: isFreeRewardSelection
+    ? promotionSelection?.promotionId
+    : undefined,
+  promotionSize: isFreeRewardSelection
+    ? selectedSize
+    : undefined,
+});
 
   setAdded(true);
+
   setTimeout(() => {
     setAdded(false);
     onClose();
@@ -371,7 +448,7 @@ const price = pricePerSheet * panelCount;
 };
   // The priced material list (shown with a frame) replaces the simple toggle, so only one is visible
   const showPricedMaterials = !isNoFrame && withFrame && materialPricing.length > 0;
-  const total = price * quantity;
+  const total = displayPrice * quantity;
 
   return (
     <>
@@ -467,7 +544,16 @@ const price = pricePerSheet * panelCount;
                   animate={{ y: 0, opacity: 1 }}
                   className="font-display font-black text-3xl text-z-ink"
                 >
-                  &#8377;{price}
+                 {isFreeRewardSelection ? (
+                      <span className="flex items-baseline gap-2">
+                        <span className="text-green-600">FREE</span>
+                        <span className="text-sm line-through text-z-muted">
+                          ₹{price}
+                        </span>
+                      </span>
+                    ) : (
+                      <>₹{price}</>
+)}
                 </motion.span>
                 <span className="text-[9px] font-mono uppercase text-z-muted">
                   {selectedSize} · {selectedLayout}
@@ -477,7 +563,7 @@ const price = pricePerSheet * panelCount;
             </motion.div>
 
             {/* Frame (first, because it filters the available sizes) */}
-            {!isNoFrame && (
+            {!isPromotionSelection && !isNoFrame && (
               <Field label="Frame">
                 <div className="flex flex-wrap gap-2">
                   <Chip active={!withFrame} onClick={() => setWithFrame(false)}>Without Frame</Chip>
@@ -487,20 +573,39 @@ const price = pricePerSheet * panelCount;
             )}
 
             {/* Size */}
-            {availableSizes.length > 0 && (
-              <Field label="Size">
-                <div className="flex flex-wrap gap-2">
-                  {visibleSizes.map((s) => (
-                    <Chip key={s.name} active={selectedSize === s.name} onClick={() => setSelectedSize(s.name)}>
-                      {s.name}
-                    </Chip>
-                  ))}
-                  {visibleSizes.length === 0 && (
-                    <p className="text-[10px] font-mono text-z-muted">No sizes available for this option</p>
-                  )}
-                </div>
-              </Field>
-            )}
+              {availableSizes.length > 0 && (
+                <Field label="Size">
+                  <div className="flex flex-wrap gap-2">
+                    {visibleSizes.map((s) => {
+                      const isRewardSize =
+                        isPromotionSelection &&
+                        s.name === promotionSelection?.size &&
+                        !s.frame_only;
+
+                      return (
+                        <Chip
+                          key={s.name}
+                          active={selectedSize === s.name}
+                          onClick={() => setSelectedSize(s.name)}
+                        >
+                          {s.name}
+                          {isRewardSize && (
+                            <span className="ml-1 text-[9px] font-bold text-green-600">
+                              FREE
+                            </span>
+                          )}
+                        </Chip>
+                      );
+                    })}
+
+                    {visibleSizes.length === 0 && (
+                      <p className="text-[10px] font-mono text-z-muted">
+                        No sizes available for this option
+                      </p>
+                    )}
+                  </div>
+                </Field>
+              )}
 
             {/* Layout */}
             {availableLayouts.length > 1 && (
@@ -536,25 +641,35 @@ const price = pricePerSheet * panelCount;
               </Field>
             )}
 
-            {/* Material (simple toggle) */}
-            {!showPricedMaterials && (
-              <Field label="Material">
-                <div className="flex flex-wrap gap-2">
-                  <Chip active={selectedMaterial === 'PAPER POSTER'} onClick={() => setSelectedMaterial('PAPER POSTER')}>
+            {/* Material */}
+              {isPromotionSelection ? (
+                <Field label="Material">
+                  <Chip active onClick={() => {}}>
                     Paper Poster
                   </Chip>
-                  <Chip
-                    active={selectedMaterial === 'METALLIC POSTER'}
-                    onClick={() => {
-                      setSelectedMaterial('METALLIC POSTER');
-                      setMetallicThickness('0.45mm');
-                    }}
-                  >
-                    Metal Poster
-                  </Chip>
-                </div>
-              </Field>
-            )}
+                </Field>
+              ) : !showPricedMaterials && (
+                <Field label="Material">
+                  <div className="flex flex-wrap gap-2">
+                    <Chip
+                      active={selectedMaterial === 'PAPER POSTER'}
+                      onClick={() => setSelectedMaterial('PAPER POSTER')}
+                    >
+                      Paper Poster
+                    </Chip>
+
+                    <Chip
+                      active={selectedMaterial === 'METALLIC POSTER'}
+                      onClick={() => {
+                        setSelectedMaterial('METALLIC POSTER');
+                        setMetallicThickness('0.45mm');
+                      }}
+                    >
+                      Metal Poster
+                    </Chip>
+                  </div>
+                </Field>
+              )}
 
             {/* Material (priced, only with a frame) */}
             {showPricedMaterials && (
@@ -578,7 +693,7 @@ const price = pricePerSheet * panelCount;
             )}
 
             {/* Metallic thickness */}
-            {selectedMaterial === 'METALLIC POSTER' && (
+            {!isPromotionSelection && selectedMaterial === 'METALLIC POSTER' && (
               <Field label="Metallic Thickness">
                 <div className="flex flex-wrap gap-2">
                   {(['0.45mm', '1mm'] as const).map((t) => (
@@ -708,9 +823,16 @@ const price = pricePerSheet * panelCount;
                 animate={{ y: 0, opacity: 1 }}
                 className="font-display font-black text-2xl leading-none text-z-ink"
               >
-                &#8377;{total}
+                <p className="text-[9px] font-mono uppercase text-z-muted">
+                    {isFreeRewardSelection
+                      ? `FREE REWARD · ${quantity} POSTER`
+                      : `TOTAL · ${quantity} × ₹${price}`}
+                  </p>
               </motion.p>
             </div>
+
+
+            {!isPromotionSelection && (
 
             <div className="flex items-center gap-2">
               <motion.button
@@ -722,7 +844,7 @@ const price = pricePerSheet * panelCount;
               >
                 <Minus className="w-3 h-3" />
               </motion.button>
-              <span className="text-[14px] font-mono font-black text-z-ink w-8 text-center">{quantity}</span>
+              <span className="text-[14px] font-mono font-black text-z-ink w-8 text-center">{isPromotionSelection ? 1 : quantity}</span>
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.9 }}
@@ -732,7 +854,7 @@ const price = pricePerSheet * panelCount;
               >
                 <Plus className="w-3 h-3" />
               </motion.button>
-            </div>
+            </div>)}
           </div>
 
           <motion.button
@@ -753,7 +875,11 @@ const price = pricePerSheet * panelCount;
                 className="flex items-center gap-2"
               >
                 {added ? <Check className="w-4 h-4" /> : <ShoppingBag className="w-4 h-4" />}
-                {added ? 'Added!' : 'Add to Cart'}
+                {added
+                    ? 'Added!'
+                    : isFreeRewardSelection
+                      ? 'Add Free Poster'
+                      : 'Add to Cart'}
               </motion.span>
             </AnimatePresence>
           </motion.button>

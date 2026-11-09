@@ -94,17 +94,22 @@ export interface CreateCashfreeOrderInput {
   note?: string;
 }
 
-export const createCashfreeOrder = async (input: CreateCashfreeOrderInput): Promise<CashfreeOrder> => {
+export const createCashfreeOrder = async (
+  input: CreateCashfreeOrderInput
+): Promise<CashfreeOrder> => {
   const frontendUrl = (process.env.FRONTEND_URL || "").replace(/\/+$/, "");
-  if (!frontendUrl) throw new CashfreeConfigError("FRONTEND_URL is not set");
+
+  if (!frontendUrl) {
+    throw new CashfreeConfigError("FRONTEND_URL is not set");
+  }
 
   const publicBackend = (process.env.BACKEND_PUBLIC_URL || "").replace(/\/+$/, "");
 
   const orderMeta: Record<string, string> = {
-    // Cashfree substitutes {order_id} with the real order id on redirect.
-    return_url: `${frontendUrl}/payment?cf_order_id={order_id}`,
-  };
-  // Cashfree only accepts https webhooks. Skipped on plain-http local dev.
+  return_url: `${frontendUrl}/payment?order_id={order_id}`,
+};
+
+  // Cashfree requires HTTPS webhook URLs.
   if (publicBackend.startsWith("https://")) {
     orderMeta.notify_url = `${publicBackend}/api/payments/webhook`;
   }
@@ -122,7 +127,9 @@ export const createCashfreeOrder = async (input: CreateCashfreeOrderInput): Prom
         customer_phone: input.customer.phone,
       },
       order_meta: orderMeta,
-      order_expiry_time: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      order_expiry_time: new Date(
+        Date.now() + 30 * 60 * 1000
+      ).toISOString(),
       order_note: input.note,
     },
   });

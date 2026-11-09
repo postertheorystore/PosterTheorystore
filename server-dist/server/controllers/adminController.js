@@ -762,3 +762,130 @@ export const deleteCourier = async (req, res) => {
     await pool.query("DELETE FROM couriers WHERE id = $1", [cId]);
     res.json({ message: "Deleted" });
 };
+// ========== PROMOTION MANAGEMENT ==========
+export const getPromotionSettings = async (req, res) => {
+    try {
+        const { rows } = await pool.query(`SELECT * FROM promotion_settings WHERE id = 1`);
+        if (!rows.length) {
+            return res.status(404).json({ error: "Promotion settings not found" });
+        }
+        res.json(rows[0]);
+    }
+    catch (err) {
+        console.error("Get promotion settings error:", err);
+        res.status(500).json({ error: "Failed to fetch promotion settings" });
+    }
+};
+export const updatePromotionSettings = async (req, res) => {
+    try {
+        const { promotion_name, buy_quantity, free_quantity, eligible_size_ids, eligible_materials, include_framed, is_active, start_date, end_date, } = req.body;
+        // Validate quantities
+        const buyQuantity = Number(buy_quantity);
+        const freeQuantity = Number(free_quantity);
+        if (!Number.isInteger(buyQuantity) || buyQuantity < 1 || buyQuantity > 100) {
+            return res.status(400).json({
+                error: "Buy quantity must be between 1 and 100",
+            });
+        }
+        if (!Number.isInteger(freeQuantity) || freeQuantity < 0 || freeQuantity > 100) {
+            return res.status(400).json({
+                error: "Free quantity must be between 0 and 100",
+            });
+        }
+        // Validate eligible sizes
+        if (!Array.isArray(eligible_size_ids) ||
+            eligible_size_ids.some((id) => !Number.isInteger(Number(id)) || Number(id) <= 0)) {
+            return res.status(400).json({
+                error: "Eligible size IDs must be an array of valid IDs",
+            });
+        }
+        const sizeIds = [...new Set(eligible_size_ids.map(Number))];
+        if (sizeIds.length > 0) {
+            const sizeCheck = await pool.query(`SELECT id FROM sizes WHERE id = ANY($1::int[])`, [sizeIds]);
+            if (sizeCheck.rows.length !== sizeIds.length) {
+                return res.status(400).json({
+                    error: "One or more selected sizes do not exist",
+                });
+            }
+        }
+        // Validate materials
+        const allowedMaterials = ["PAPER", "METALLIC"];
+        if (!Array.isArray(eligible_materials) ||
+            eligible_materials.some((material) => typeof material !== "string" ||
+                !allowedMaterials.includes(material.toUpperCase()))) {
+            return res.status(400).json({
+                error: "Invalid eligible materials",
+            });
+        }
+        const materials = [
+            ...new Set(eligible_materials.map((m) => m.toUpperCase())),
+        ];
+        // Validate dates
+        const startDate = start_date || null;
+        const endDate = end_date || null;
+        if ((startDate && Number.isNaN(Date.parse(startDate))) ||
+            (endDate && Number.isNaN(Date.parse(endDate)))) {
+            return res.status(400).json({ error: "Invalid promotion date" });
+        }
+        if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+            return res.status(400).json({
+                error: "End date must be after start date",
+            });
+        }
+        const name = sanitizeText(promotion_name || "Buy X Get Y Free", 100);
+        const dbCheck = await pool.query(`
+      SELECT
+        current_database() AS database_name,
+        current_schema() AS schema_name,
+        current_setting('search_path') AS search_path,
+        to_regclass('promotion_settings') AS resolved_table
+    `);
+        const columnCheck = await pool.query(`
+      SELECT table_schema, column_name
+      FROM information_schema.columns
+      WHERE table_name = 'promotion_settings'
+      ORDER BY table_schema, ordinal_position
+    `);
+        console.log("[PROMOTION DB CHECK]", dbCheck.rows);
+        console.log("[PROMOTION COLUMNS]", columnCheck.rows);
+        const { rows } = await pool.query(`UPDATE promotion_settings
+       SET
+         promotion_name = $1,
+         buy_quantity = $2,
+         free_quantity = $3,
+         eligible_size_ids = $4::jsonb,
+         eligible_materials = $5::jsonb,
+         include_framed = $6,
+         is_active = $7,
+         start_date = $8,
+         end_date = $9,
+         updated_by = $10,
+         updated_at = NOW()
+       WHERE id = 1
+       RETURNING *`, [
+            name,
+            buyQuantity,
+            freeQuantity,
+            JSON.stringify(sizeIds),
+            JSON.stringify(materials),
+            parseBool(include_framed),
+            parseBool(is_active),
+            startDate,
+            endDate,
+            req.user?.id || null,
+        ]);
+        if (!rows.length) {
+            return res.status(404).json({
+                error: "Promotion settings not found. Run the database setup first.",
+            });
+        }
+        res.json({
+            message: "Global promotion updated successfully",
+            promotion: rows[0],
+        });
+    }
+    catch (err) {
+        console.error("Update promotion settings error:", err);
+        res.status(500).json({ error: "Failed to update promotion settings" });
+    }
+};

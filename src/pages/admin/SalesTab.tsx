@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Trash2, Pencil } from 'lucide-react';
 import api from '../../lib/api';
 import { h, useAction, Spinner, Input, Label } from './shared';
+import PromotionSettings from "./PromotionSettings";
 
 
 interface SaleProduct {
@@ -233,6 +234,9 @@ const toggleActive = async (id: number, current: boolean) => {
   const textCls = 'w-full bg-z-paper border-2 border-z-border/30 px-3 py-2 text-[11px] font-mono text-z-ink focus:outline-none focus:border-z-orange transition-colors';
 
   return (
+  <>
+    <PromotionSettings token={token} />
+
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
       <div className="lg:col-span-4">
         <div className="border-2 border-z-border/20 p-5 bg-z-paper shadow-[4px_4px_0px_0px_var(--color-z-shadow)]">
@@ -387,6 +391,7 @@ const toggleActive = async (id: number, current: boolean) => {
         </div>
       </div>
     </div>
+    </>
   );
 }
 

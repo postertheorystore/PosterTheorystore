@@ -70,11 +70,21 @@ async function startServer() {
   // Exempt paths are handled before this middleware.
   const csrfExemptPaths = ['/api/auth', '/api/track-visit'];
   app.use((req, res, next) => {
-    if (csrfExemptPaths.some(p => req.path === p || req.path.startsWith(`${p}/`))) {
-  return next();
-}
-    return csrfProtection(req, res, next);
+  console.log("[CSRF CHECK]", {
+    method: req.method,
+    path: req.path,
+    hasToken: Boolean(req.headers["x-csrf-token"]),
+    hasCookie: Boolean(req.headers.cookie),
   });
+
+  if (csrfExemptPaths.some(
+    p => req.path === p || req.path.startsWith(`${p}/`)
+  )) {
+    return next();
+  }
+
+  return csrfProtection(req, res, next);
+});
 
   // API Routes
   app.use("/api/auth", authRoutes);
@@ -98,7 +108,7 @@ async function startServer() {
   app.use("/api/sales", saleRoutes);
 
   //Cashfree
-  app.use("/api/payments",  authenticateToken, paymentRoutes);
+  app.use("/api/payments", paymentRoutes);
 
   // Public analytics tracking (exempt from CSRF — non-sensitive, fire-and-forget)
   app.post("/api/track-visit", trackVisit);

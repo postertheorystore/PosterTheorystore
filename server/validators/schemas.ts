@@ -48,11 +48,23 @@ export const createProductSchema = z.object({
   layout: z.enum(['Single', 'Duo', 'Trio', 'Quad']).default('Single'),
 });
 
+
 export const createOrderSchema = z.object({
   total: z.number().optional(),
   items: z.any(),
   address_id: z.number().positive("Select a delivery address"),
+
+  freeItemSelections: z.array(
+    z.object({
+      cartItemId: z.string().min(1, "Cart item ID is required"),
+      quantity: z.number()
+        .int("Free quantity must be a whole number")
+        .positive("Free quantity must be positive")
+        .max(100, "Invalid free quantity"),
+    })
+  ).max(100, "Too many free-item selections").default([]),
 });
+
 
 export const createDesignSchema = z.object({
   text: z.string().min(1),

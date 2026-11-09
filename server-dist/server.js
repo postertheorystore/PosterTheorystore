@@ -19,7 +19,6 @@ import exportRoutes from "./server/routes/export.js";
 import adminRoutes from "./server/routes/admin.js";
 import { trackVisit } from "./server/controllers/analyticsController.js";
 import { initStorage } from "./server/config/initStorage.js";
-import { authenticateToken } from "./server/middleware/authMiddleware.js";
 import favourites from "./server/routes/favourites.js";
 import couponRoutes from "./server/routes/coupons.js";
 import saleRoutes from "./server/routes/sales.js";
@@ -51,6 +50,12 @@ async function startServer() {
     // Exempt paths are handled before this middleware.
     const csrfExemptPaths = ['/api/auth', '/api/track-visit'];
     app.use((req, res, next) => {
+        console.log("[CSRF CHECK]", {
+            method: req.method,
+            path: req.path,
+            hasToken: Boolean(req.headers["x-csrf-token"]),
+            hasCookie: Boolean(req.headers.cookie),
+        });
         if (csrfExemptPaths.some(p => req.path === p || req.path.startsWith(`${p}/`))) {
             return next();
         }
@@ -74,7 +79,7 @@ async function startServer() {
     app.use("/api/coupons", couponRoutes);
     app.use("/api/sales", saleRoutes);
     //Cashfree
-    app.use("/api/payments", authenticateToken, paymentRoutes);
+    app.use("/api/payments", paymentRoutes);
     // Public analytics tracking (exempt from CSRF — non-sensitive, fire-and-forget)
     app.post("/api/track-visit", trackVisit);
     // Serve Uploads

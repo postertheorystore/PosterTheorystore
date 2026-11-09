@@ -1,5 +1,5 @@
 import express from "express";
-import { createOrder, getUserOrders, getAllOrders, downloadOrder, getItemTracking, updateItemTracking, cancelOrder } from "../controllers/orderController.js";
+import { createOrder, getUserOrders, getAllOrders, downloadOrder, getItemTracking, updateItemTracking, cancelOrder, getPublicPromotionSettings } from "../controllers/orderController.js";
 import { authenticateToken, isAdmin } from "../middleware/authMiddleware.js";
 const router = express.Router();
 router.post("/", authenticateToken, createOrder);
@@ -9,4 +9,5 @@ router.get("/admin/all", authenticateToken, isAdmin, getAllOrders);
 router.get("/admin/:id/download", authenticateToken, isAdmin, downloadOrder);
 router.get("/admin/:id/tracking", authenticateToken, isAdmin, getItemTracking);
 router.put("/admin/:id/tracking", authenticateToken, isAdmin, updateItemTracking);
+router.get("/promotion", getPublicPromotionSettings);
 export default router;

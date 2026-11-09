@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import { authenticateToken, isAdmin } from "../middleware/authMiddleware.js";
-import { getDashboard, getCollections, createCollection, updateCollection, deleteCollection, getLayouts, createLayout, updateLayout, deleteLayout, getSizes, createSize, updateSize, deleteSize, getPricing, upsertPricing, deletePricing, getAdminProducts, getProductStats, createProduct, updateProduct, deleteProduct, deleteProductImage, uploadProductImages, setMainImage, getAdminOrders, updateOrderStatus, getOrderHistory, getCustomRequests, updateCustomRequestStatus, getCoupons, createCoupon, updateCoupon, deleteCoupon, getCustomers, getHomepageConfig, updateHomepageConfig, uploadHomepageImage, getCouriers, createCourier, updateCourier, deleteCourier, getFramePricing, upsertFramePricing, deleteFramePricing, getMaterialPricing, upsertMaterialPricing, } from "../controllers/adminController.js";
+import { getDashboard, getCollections, createCollection, updateCollection, deleteCollection, getLayouts, createLayout, updateLayout, deleteLayout, getSizes, createSize, updateSize, deleteSize, getPricing, upsertPricing, deletePricing, getAdminProducts, getProductStats, createProduct, updateProduct, deleteProduct, deleteProductImage, uploadProductImages, setMainImage, getAdminOrders, updateOrderStatus, getOrderHistory, getCustomRequests, updateCustomRequestStatus, getCoupons, createCoupon, updateCoupon, deleteCoupon, getCustomers, getPromotionSettings, updatePromotionSettings, getHomepageConfig, updateHomepageConfig, uploadHomepageImage, getCouriers, createCourier, updateCourier, deleteCourier, getFramePricing, upsertFramePricing, deleteFramePricing, getMaterialPricing, upsertMaterialPricing, } from "../controllers/adminController.js";
 import { getAnalytics } from "../controllers/analyticsController.js";
 import { getSales, getSaleById, createSale, updateSale, deleteSale, } from "../controllers/saleController.js";
 const router = Router();
@@ -81,6 +81,9 @@ router.delete("/frame-pricing/:id", deleteFramePricing);
 // Material Pricing
 router.get("/material-pricing", getMaterialPricing);
 router.post("/material-pricing", upsertMaterialPricing);
+// Promotion Management
+router.get("/promotions", getPromotionSettings);
+router.put("/promotions", updatePromotionSettings);
 // Sales
 router.get("/sales", getSales);
 router.get("/sales/:id", getSaleById);

@@ -50,14 +50,16 @@ const Spinner = ({ label, hint }: { label: string; hint?: string }) => (
 );
 
 export default function Payment() {
-  const { cart, cartLoading, total, clearCart } = useCart();
+  const { cart, displayCart, cartLoading, total, clearCart } = useCart();
   const { user, token, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Set by Cashfree when it redirects the customer back to us.
-  const returnedCfOrderId = searchParams.get('cf_order_id');
+ const returnedCfOrderId =
+  searchParams.get('order_id') ||
+  searchParams.get('cf_order_id');
 
   const [addressId] = useState<number | null>(
     () => (location.state as { addressId?: number } | null)?.addressId ?? readCheckoutAddressId()
@@ -81,9 +83,21 @@ export default function Payment() {
   const clearCartRef = useRef(clearCart);
   clearCartRef.current = clearCart;
 
-  const displayTotal = appliedCoupon
+ const estimatedDeliveryCharge =
+  appliedCoupon?.free_shipping
+    ? 0
+    : total > 750
+      ? 0
+      : address?.state?.trim().toLowerCase() === 'tamil nadu'
+        ? 40
+        : 70;
+
+const productPayable = appliedCoupon
   ? Number(appliedCoupon.final_amount)
-  : verifiedTotal ?? total;
+  : total;
+
+const displayTotal =
+  verifiedTotal ?? productPayable + estimatedDeliveryCharge;
 
   useEffect(() => {
     aliveRef.current = true;
@@ -94,10 +108,10 @@ export default function Payment() {
 
   /* ---------- authentication ---------- */
   useEffect(() => {
-    if (!authLoading && !user) {
-      navigate(`/login?redirect=${encodeURIComponent('/payment' + location.search)}`, { replace: true });
-    }
-  }, [authLoading, user, navigate, location.search]);
+  if (!authLoading && !user && !returnedCfOrderId) {
+    navigate("/login", { replace: true });
+  }
+}, [authLoading, user, returnedCfOrderId, navigate]);
 
   /* ---------- the cart syncs from the server after login; give it a moment before calling it empty ---------- */
   useEffect(() => {
@@ -114,14 +128,9 @@ export default function Payment() {
 
       for (let attempt = 0; attempt <= MAX_VERIFY_POLLS; attempt++) {
         try {
-          const res = await api.get(
-            `/api/payments/verify/${encodeURIComponent(cfOrderId)}`,
-            {
-                headers: {
-                Authorization: `Bearer ${token}`,
-                },
-            }
-            );
+         const res = await api.get(
+            `/api/payments/verify/${encodeURIComponent(cfOrderId)}`
+          );
           if (!aliveRef.current) return;
           const { state, reason, order_id } = res.data as { state: string; reason?: string; order_id?: number };
 
@@ -164,15 +173,16 @@ export default function Payment() {
         }
       }
     },
-    [navigate, location.search, token]
+    [navigate, location.search]
   );
 
-  useEffect(() => {
-    if (authLoading || !user || !returnedCfOrderId) return;
-    if (verifyingRef.current === returnedCfOrderId) return;
-    verifyingRef.current = returnedCfOrderId;
-    verifyPayment(returnedCfOrderId);
-  }, [authLoading, user, returnedCfOrderId, verifyPayment]);
+ useEffect(() => {
+  if (!returnedCfOrderId) return;
+  if (verifyingRef.current === returnedCfOrderId) return;
+
+  verifyingRef.current = returnedCfOrderId;
+  verifyPayment(returnedCfOrderId);
+}, [returnedCfOrderId, verifyPayment]);
 
   /* ---------- normal entry: validate checkout state and load the address ---------- */
   useEffect(() => {
@@ -244,16 +254,7 @@ const handlePayNow = async () => {
 
     stage = "creating payment order";
 
-    const checkoutTotal = appliedCoupon
-      ? Number(appliedCoupon.final_amount)
-      : total;
-
-    console.log("[Payment] Creating order", {
-      itemCount: itemsWithFullImages.length,
-      addressId,
-      couponApplied: Boolean(appliedCoupon),
-      checkoutTotal,
-    });
+    const checkoutTotal = displayTotal;
 
     const res = await api.post(
       "/api/payments/create",
@@ -272,13 +273,7 @@ const handlePayNow = async () => {
 
     const data = res.data;
 
-    console.log("[Payment] Create-order response", {
-      order_id: data.order_id,
-      cashfree_order_id: data.cashfree_order_id,
-      sessionReceived: Boolean(data.payment_session_id),
-      environment: data.environment,
-      amount: data.amount,
-    });
+    
 
     if (data.already_paid && data.cashfree_order_id) {
       payingRef.current = false;
@@ -385,7 +380,11 @@ const handlePayNow = async () => {
   /* render                                                              */
   /* ------------------------------------------------------------------ */
 
-  if (authLoading || !user || phase === 'init') {
+  if (
+  (authLoading && !returnedCfOrderId) ||
+  (!user && !returnedCfOrderId) ||
+  phase === 'init'
+) {
     return <Spinner label="Preparing Checkout..." />;
   }
 
@@ -535,7 +534,7 @@ const handlePayNow = async () => {
               </h3>
 
               <div className="space-y-8">
-                {cart.map((item) => {
+                {displayCart.map((item) => {
                   const specs = item.customSpecs || {};
                   const size = specs.size || item.size;
                   const isMetal = specs.material === 'METALLIC POSTER';
@@ -552,7 +551,7 @@ const handlePayNow = async () => {
 
                   return (
                     <div
-                      key={item.cartItemId}
+                     key={item.displayRowId || item.cartItemId}
                       className="flex flex-col sm:flex-row gap-6 pb-8 border-b-2 border-z-border last:border-0 last:pb-0"
                     >
                       <img
@@ -596,9 +595,13 @@ const handlePayNow = async () => {
                     </div>
 
                     <div className="flex justify-between font-mono text-[13px] font-bold text-z-muted uppercase">
-                      <span>Shipping:</span>
+                      <span>Delivery:</span>
                       <span className="text-z-ink">
-                        {appliedCoupon?.free_shipping ? 'FREE — COUPON' : 'FREE'}
+                        {estimatedDeliveryCharge === 0
+                          ? appliedCoupon?.free_shipping
+                            ? 'FREE — COUPON'
+                            : 'FREE'
+                          : money(estimatedDeliveryCharge)}
                       </span>
                     </div>
 
@@ -619,7 +622,7 @@ const handlePayNow = async () => {
                       </span>
 
                       <span className="font-display font-black text-3xl tracking-tighter text-z-ink">
-                        {money(appliedCoupon ? appliedCoupon.final_amount : displayTotal)}
+                        {money(displayTotal)}
                       </span>
                     </div>
                   </div>                                  

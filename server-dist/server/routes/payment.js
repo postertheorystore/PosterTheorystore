@@ -1,14 +1,9 @@
 import { Router } from "express";
-import { createPayment, verifyPayment } from "../controllers/Paymentcontroller.js";
-/**
- * Authenticated payment routes.
- * Mount with your existing JWT middleware (see snippets/server-changes.md):
- *   app.use("/api/payments", <yourAuthMiddleware>, paymentRoutes);
- *
- * The Cashfree webhook is NOT here: it is public + needs the raw body,
- * so it is mounted separately in server.ts.
- */
+import { createPayment, verifyPayment, } from "../controllers/Paymentcontroller.js";
+import { authenticateToken } from "../middleware/authMiddleware.js";
 const router = Router();
-router.post("/create", createPayment);
+// Creating a payment must require login.
+router.post("/create", authenticateToken, createPayment);
+// Verification must work even if the customer's session expires.
 router.get("/verify/:cashfreeOrderId", verifyPayment);
 export default router;

@@ -45,23 +45,23 @@ const parseSaleBody = (body) => {
 export const getSales = async (req, res) => {
     try {
         const { rows } = await pool.query(`
-      SELECT
-        s.*,
-        COALESCE(
-          json_agg(
-            json_build_object(
-              'product_id', sp.product_id,
-              'sale_price', sp.sale_price
-            )
-          ) FILTER (WHERE sp.id IS NOT NULL),
-          '[]'
-        ) AS products
-      FROM sale_announcements s
-      LEFT JOIN sale_products sp
-        ON sp.sale_id = s.id
-      GROUP BY s.id
-      ORDER BY s.priority DESC, s.created_at DESC
-    `);
+        SELECT
+          s.*,
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'product_id', sp.product_id,
+                'sale_price', sp.sale_price
+              )
+            ) FILTER (WHERE sp.id IS NOT NULL),
+            '[]'
+          ) AS products
+        FROM sale_announcements s
+        LEFT JOIN sale_products sp
+          ON sp.sale_id = s.id
+        GROUP BY s.id
+        ORDER BY s.priority DESC, s.created_at DESC
+      `);
         res.json(rows);
     }
     catch (error) {
@@ -78,10 +78,10 @@ export const getSaleById = async (req, res) => {
     }
     try {
         const { rows } = await pool.query(`
-      SELECT *
-      FROM sale_announcements
-      WHERE id = $1
-      `, [id]);
+        SELECT *
+        FROM sale_announcements
+        WHERE id = $1
+        `, [id]);
         if (!rows.length) {
             return res.status(404).json({
                 error: "Sale not found",
@@ -135,8 +135,8 @@ export const createSale = async (req, res) => {
         if (products.length > 0) {
             const productIds = products.map(p => p.product_id);
             const productResult = await pool.query(`SELECT id, price
-         FROM products
-         WHERE id = ANY($1::int[])`, [productIds]);
+          FROM products
+          WHERE id = ANY($1::int[])`, [productIds]);
             const productMap = new Map(productResult.rows.map(product => [
                 product.id,
                 Number(product.price),
@@ -159,19 +159,19 @@ export const createSale = async (req, res) => {
         try {
             await client.query("BEGIN");
             const saleResult = await client.query(`INSERT INTO sale_announcements (
-          title,
-          subtitle,
-          description,
-          discount_text,
-          coupon_code,
-          min_order,
-          starts_at,
-          expires_at,
-          is_active,
-          priority
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-        RETURNING *`, [
+            title,
+            subtitle,
+            description,
+            discount_text,
+            coupon_code,
+            min_order,
+            starts_at,
+            expires_at,
+            is_active,
+            priority
+          )
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          RETURNING *`, [
                 data.title,
                 data.subtitle,
                 data.description,
@@ -186,11 +186,11 @@ export const createSale = async (req, res) => {
             const sale = saleResult.rows[0];
             for (const product of products) {
                 await client.query(`INSERT INTO sale_products (
-            sale_id,
-            product_id,
-            sale_price
-          )
-          VALUES ($1, $2, $3)`, [
+              sale_id,
+              product_id,
+              sale_price
+            )
+            VALUES ($1, $2, $3)`, [
                     sale.id,
                     product.product_id,
                     product.sale_price,
@@ -261,8 +261,8 @@ export const updateSale = async (req, res) => {
         if (products.length > 0) {
             const productIds = products.map(p => p.product_id);
             const productResult = await pool.query(`SELECT id, price
-         FROM products
-         WHERE id = ANY($1::int[])`, [productIds]);
+          FROM products
+          WHERE id = ANY($1::int[])`, [productIds]);
             const productMap = new Map(productResult.rows.map(product => [
                 product.id,
                 Number(product.price),
@@ -285,20 +285,20 @@ export const updateSale = async (req, res) => {
         try {
             await client.query("BEGIN");
             const saleResult = await client.query(`UPDATE sale_announcements
-         SET
-           title = $1,
-           subtitle = $2,
-           description = $3,
-           discount_text = $4,
-           coupon_code = $5,
-           min_order = $6,
-           starts_at = $7,
-           expires_at = $8,
-           is_active = $9,
-           priority = $10,
-           updated_at = CURRENT_TIMESTAMP
-         WHERE id = $11
-         RETURNING *`, [
+          SET
+            title = $1,
+            subtitle = $2,
+            description = $3,
+            discount_text = $4,
+            coupon_code = $5,
+            min_order = $6,
+            starts_at = $7,
+            expires_at = $8,
+            is_active = $9,
+            priority = $10,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $11
+          RETURNING *`, [
                 data.title,
                 data.subtitle,
                 data.description,
@@ -321,11 +321,11 @@ export const updateSale = async (req, res) => {
             await client.query(`DELETE FROM sale_products WHERE sale_id = $1`, [id]);
             for (const product of products) {
                 await client.query(`INSERT INTO sale_products (
-            sale_id,
-            product_id,
-            sale_price
-          )
-          VALUES ($1, $2, $3)`, [
+              sale_id,
+              product_id,
+              sale_price
+            )
+            VALUES ($1, $2, $3)`, [
                     id,
                     product.product_id,
                     product.sale_price,
@@ -361,9 +361,9 @@ export const deleteSale = async (req, res) => {
     }
     try {
         const result = await pool.query(`
-      DELETE FROM sale_announcements
-      WHERE id = $1
-      `, [id]);
+        DELETE FROM sale_announcements
+        WHERE id = $1
+        `, [id]);
         if (result.rowCount === 0) {
             return res.status(404).json({
                 error: "Sale not found",
@@ -386,33 +386,33 @@ export const deleteSale = async (req, res) => {
 export const getActiveSale = async (req, res) => {
     try {
         const { rows } = await pool.query(`
-      SELECT
-        id,
-        title,
-        subtitle,
-        description,
-        discount_text,
-        coupon_code,
-        starts_at,
-        expires_at,
-        priority
-      FROM sale_announcements
-      WHERE is_active = TRUE
+        SELECT
+          id,
+          title,
+          subtitle,
+          description,
+          discount_text,
+          coupon_code,
+          starts_at,
+          expires_at,
+          priority
+        FROM sale_announcements
+        WHERE is_active = TRUE
 
-        AND (
-          starts_at IS NULL
-          OR starts_at <= CURRENT_TIMESTAMP
-        )
+          AND (
+            starts_at IS NULL
+            OR starts_at <= CURRENT_TIMESTAMP
+          )
 
-        AND (
-          expires_at IS NULL
-          OR expires_at > CURRENT_TIMESTAMP
-        )
+          AND (
+            expires_at IS NULL
+            OR expires_at > CURRENT_TIMESTAMP
+          )
 
-      ORDER BY priority DESC, created_at DESC
+        ORDER BY priority DESC, created_at DESC
 
-      LIMIT 1
-    `);
+        LIMIT 1
+      `);
         if (!rows.length) {
             return res.json(null);
         }

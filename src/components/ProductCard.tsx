@@ -16,6 +16,11 @@ interface ProductProps {
   layout?: string;
   available_sizes?: number[];
   available_layouts?: number[];
+  promotionSelection?: {
+    size: string;
+    promotionId: number;
+    quantity: number;
+  };
 
   // Frame support
   frameColor?: "black" | "white";
@@ -23,7 +28,10 @@ interface ProductProps {
   [key: string]: any;
 }
 
-export default function ProductCard(props: ProductProps) {
+export default function ProductCard({
+  promotionSelection,
+  ...props
+}: ProductProps) {
   const {
     id,
     title,
@@ -211,6 +219,7 @@ export default function ProductCard(props: ProductProps) {
           <ProductModal
             key="product-drawer"
             product={modalProduct}
+            promotionSelection={promotionSelection}
             onClose={() => setModalProduct(null)}
             onProductSelect={(item) => setModalProduct(item)}
           />

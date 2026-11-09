@@ -17,8 +17,16 @@ interface Address {
   is_default: boolean;
 }
 
+interface PromotionSettings {
+  id: number;
+  name: string;
+  buy_quantity: number;
+  free_quantity: number;
+  eligible_category: string;
+  is_active: boolean;
+}
 export default function Cart() {
-  const { cart, cartLoading, removeFromCart, updateQuantity, total } = useCart();
+  const { cart, cartLoading, displayCart, removeFromCart, updateQuantity, total } = useCart();
   const { user, token } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -26,6 +34,129 @@ export default function Cart() {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
   const [profileError, setProfileError] = useState('');
+
+
+  const [promotion, setPromotion] =
+  useState<PromotionSettings | null>(null);
+
+const [promotionLoading, setPromotionLoading] =
+  useState(true);
+
+useEffect(() => {
+  const fetchPromotion = async () => {
+    try {
+      const res = await api.get("/api/orders/promotion");
+      setPromotion(res.data.promotion);
+    } catch (error) {
+      console.error("Failed to load promotion:", error);
+      setPromotion(null);
+    } finally {
+      setPromotionLoading(false);
+    }
+  };
+
+  fetchPromotion();
+}, []);
+
+const eligibleGroups = cart.reduce<Record<string, typeof cart>>(
+  (groups, item) => {
+    if (item.promotionFree === true) return groups;
+
+    const specs = item.customSpecs || {};
+
+    const material = String(specs.material || "")
+      .trim()
+      .toUpperCase();
+
+    const frame = String(specs.frame || "None")
+      .trim()
+      .toLowerCase();
+
+    const isCustomPaper =
+  (material === "PAPER" || material === "PAPER POSTER") &&
+  (frame === "none" || frame === "") &&
+  ![7, 8].includes(Number(item.sizeId));
+
+    const isCataloguePaper =
+      item.priceCategory === "print_only" &&
+      ![7, 8].includes(Number(item.sizeId));
+
+    if (!isCustomPaper && !isCataloguePaper) return groups;
+
+    const size = String(specs.size || item.size || "")
+      .trim()
+      .toUpperCase();
+
+    if (!size) return groups;
+
+    if (!groups[size]) groups[size] = [];
+    groups[size].push(item);
+
+    return groups;
+  },
+  {}
+);
+
+const promotionSummary = Object.entries(eligibleGroups).map(
+  ([size, items]) => {
+    const quantity = items.reduce(
+      (sum, item) => sum + item.quantity,
+      0
+    );
+
+    const bundleSize =
+      (promotion?.buy_quantity || 0) +
+      (promotion?.free_quantity || 0);
+
+    let freeQuantity = 0;
+
+if (
+  promotion?.is_active &&
+  promotion.buy_quantity > 0 &&
+  promotion.free_quantity > 0
+) {
+  const buy = promotion.buy_quantity;
+  const free = promotion.free_quantity;
+  const bundleSize = buy + free;
+
+  const completeBundles = Math.floor(quantity / bundleSize);
+  const remainingQuantity = quantity % bundleSize;
+
+  const partialFree = Math.min(
+    Math.max(remainingQuantity - buy, 0),
+    free
+  );
+
+  freeQuantity = completeBundles * free + partialFree;
+}
+
+    const addedFreeQuantity = displayCart
+      .filter(item => {
+        if (!item.promotionFree) return false;
+
+        const freeSize = String(
+          item.customSpecs?.size || item.size || ""
+        )
+          .trim()
+          .toUpperCase();
+
+        return freeSize === size;
+      })
+      .reduce((sum, item) => sum + item.quantity, 0);
+
+    return {
+      size,
+      quantity,
+      freeQuantity,
+      addedFreeQuantity,
+      items,
+    };
+  }
+);
+
+// Calculate rewards using PAID quantity only.
+
+
 
   const fetchAddresses = async (preferredId?: number | null) => {
     if (!token) return;
@@ -48,26 +179,43 @@ export default function Cart() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const handleProceedToAddress = async () => {
-      if (!user) {
-      navigate('/login?redirect=/cart');
-      return;
-    }
+  useEffect(() => {
+  console.log(
+    "POSTER THEORY CART ITEMS:",
+    JSON.stringify(
+      cart.map(({ image, ...item }) => item),
+      null,
+      2
+    )
+  );
+}, [cart]);
+const handleProceedToAddress = async () => {
+  if (!user) {
+    navigate('/login?redirect=/cart');
+    return;
+  }
 
-    setProfileError('');
-    try {
-      const res = await api.get('/api/profile/check', { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.data.complete) {
+  setProfileError('');
+
+  try {
+    const res = await api.get('/api/profile/check', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.data.complete) {
       const missing = res.data.missing;
 
-      // Address is missing: open the address section directly.
-     if (missing.address) {
-        setProfileError('No delivery address found. Please add an address to continue checkout.');
+      if (missing.address) {
+        setProfileError(
+          'No delivery address found. Please add an address to continue checkout.'
+        );
         return;
       }
 
-      // Name or phone is missing: ask the user to complete their profile.
       const parts: string[] = [];
+
       if (missing.name) parts.push('name');
       if (missing.phone) parts.push('phone number');
 
@@ -76,12 +224,18 @@ export default function Cart() {
       );
       return;
     }
-      await fetchAddresses();
-      setStep('address');
-    } catch (err) {
-      setProfileError('Failed to verify profile. Please try again.');
-    }
-  };
+
+    await fetchAddresses();
+    setStep('address');
+
+  } catch (error) {
+    console.error('Profile verification failed:', error);
+    setProfileError('Failed to verify profile. Please try again.');
+  }
+};
+  
+
+
 
   // The order is no longer created here. It is created server-side when the customer
   // presses PAY NOW on the payment page, after the amount has been re-priced on the server.
@@ -128,6 +282,7 @@ export default function Cart() {
   return (
     <div className="pt-24 sm:pt-40 pb-32 min-h-screen px-6">
       <div className="max-w-7xl mx-auto">
+       
         <header className="mb-20 border-b-4 border-z-border pb-8 flex items-baseline justify-between">
           <h1 className="font-display font-black text-6xl md:text-8xl uppercase tracking-tighter   leading-none">
             {step === 'cart' && <><span className="">Your</span>_Bag_</>}
@@ -137,129 +292,293 @@ export default function Cart() {
           <p className="font-mono text-[14px] font-bold text-z-ink border-2 border-z-border px-4 py-1">[{cart.reduce((sum, i) => sum + i.quantity, 0)}] POSTERS</p>
         </header>
 
-        {step === 'cart' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-20">
-            <div className="lg:col-span-8 space-y-12">
-              {cart.map((item) => (
-                <div key={item.cartItemId} className="flex flex-col sm:flex-row space-y-6 sm:space-y-0 sm:space-x-10 pb-12 border-b-2 border-z-border last:border-0 group">
-                  <div className="polaroid w-40 h-52 shrink-0 group-hover:-rotate-2 transition-transform bg-z-paper">
-                    <div className="tape -top-2 -left-4 w-16" />
-                    <img src={item.image} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-all duration-700 font-mono" />
-                  </div>
-                  <div className="flex-1 flex flex-col justify-between pt-4">
-                    <div>
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="flex flex-col">
-                          <h3 className="font-display font-black text-4xl uppercase tracking-tighter leading-none text-z-ink">{item.title}</h3>
-                          <div className="mt-3 flex items-center flex-wrap gap-2">
-                            <span className="text-[11px] font-mono font-black uppercase text-z-paper bg-z-ink px-3 py-1">SIZE: {item.size}</span>
-                            <span className="text-[11px] font-mono font-bold uppercase text-z-muted">COLLECTION: {item.collection}</span>
-                          </div>
-                        </div>
-                        <button onClick={() => removeFromCart(item.cartItemId)} className="bg-z-paper border-2 border-z-border p-3 text-z-ink hover:bg-z-ink hover:text-z-paper transition-all shadow-[4px_4px_0px_0px_var(--color-z-shadow)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                      {item.customSpecs && (
-                       <div className="mt-4 p-4 border-2 border-dashed border-z-border bg-z-paper">
-                          <span className="text-[9px] font-mono font-black uppercase text-z-muted tracking-widest">
-                            SPECS: {item.customSpecs.size} / {item.customSpecs.layout || 'Single'} / {item.customSpecs.printStyle || 'full-bleed'}
-                            {item.customSpecs.panelCount > 1 && ` / ${item.customSpecs.panelCount} panels`}
-                            {item.customSpecs.frame && item.customSpecs.frame !== 'None' && ` / ${item.customSpecs.frame} Frame`}
-                            {item.customSpecs.material && item.customSpecs.material !== 'PAPER POSTER' && ` / ${item.customSpecs.material}`}
 
-                            {item.customSpecs.material === 'METALLIC POSTER' &&
-                              item.customSpecs.metallicThickness &&
-                              ` / ${item.customSpecs.metallicThickness}`}
-                          </span>
+      {step === "cart" &&
+  promotion?.is_active &&
+  !promotionLoading && (
+    <div className="mb-10 space-y-4">
+      {promotionSummary.map((group) => {
+        const bundleSize =
+      promotion.buy_quantity + promotion.free_quantity;
 
-                          {item.customSpecs.material === 'METALLIC POSTER' && (
-                            <p className="text-[9px] font-mono text-z-muted mt-1">
-                              Metal poster — Premium metal posters with a sleek finish and long-lasting durability
-                            </p>
-                          )}
+      const completedTiers = Math.floor(
+        group.quantity / bundleSize
+      );
 
-                          {(!item.customSpecs.material || item.customSpecs.material === 'PAPER POSTER') && (
-                            <p className="text-[9px] font-mono text-z-muted mt-1">
-                              Art poster — High-quality paper prints with vibrant colors and sharp details
-                            </p>
-                          )}
-                        </div>
-                      )}
-                      <p className="text-z-ink mt-8 font-display font-black text-2xl   tracking-tighter">&#8377;{(item.price * item.quantity).toLocaleString()}</p>
-                      {item.quantity > 1 && <p className="text-[10px] font-mono text-z-muted mt-1">&#8377;{item.price.toLocaleString()} &times; {item.quantity}</p>}
-                    </div>
-                    <div className="flex items-center space-x-6 mt-8 sm:mt-0">
-                      <label className="text-[12px] font-mono uppercase text-z-muted font-black tracking-widest">Qty:</label>
-                      <div className="flex items-center border-2 border-z-border font-display font-bold text-base bg-z-paper shadow-[4px_4px_0px_0px_var(--color-z-shadow)]">
-                        <button onClick={() => updateQuantity(item.cartItemId, item.quantity - 1)} className="px-8 py-3 hover:bg-z-ink hover:text-z-paper transition-all">-</button>
-                        <span className="px-8 py-3 border-x-2 border-z-border bg-z-paper">{item.quantity}</span>
-                        <button onClick={() => updateQuantity(item.cartItemId, item.quantity + 1)} className="px-8 py-3 hover:bg-z-ink hover:text-z-paper transition-all">+</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
+      const quantityInCurrentTier =
+        group.quantity % bundleSize;
+
+      const remainingToNextTier =
+        quantityInCurrentTier === 0
+          ? bundleSize
+          : bundleSize - quantityInCurrentTier;
+
+      const progress =
+        group.quantity > 0 && quantityInCurrentTier === 0
+          ? 100
+          : (quantityInCurrentTier / bundleSize) * 100;
+
+          const hasUnlockedReward = group.freeQuantity > 0;
+
+        return (
+          <div
+            key={group.size}
+            className="border-2 border-z-border bg-z-paper p-5"
+          >
+            <div className="flex justify-between items-center gap-4">
+              <div>
+                <p className="font-display font-black text-lg uppercase">
+                  {promotion.name}
+                </p>
+
+                <p className="text-[10px] font-mono text-z-muted uppercase mt-1">
+                  SIZE: {group.size}
+                </p>
+              </div>
+
+              <span className="text-[10px] font-mono font-black uppercase border-2 border-z-border px-3 py-2">
+                {group.quantity} / {bundleSize}
+              </span>
             </div>
 
-            <aside className="lg:col-span-4">
-              <div className="bg-z-paper p-10 border-2 border-z-border shadow-[12px_12px_0px_0px_var(--color-z-shadow)] sticky top-40">
-                <div className="flex items-center space-x-3 mb-10 pb-4 border-b-2 border-z-border">
-                  <CreditCard className="w-4 h-4 text-z-ink" />
-                  <h2 className="text-[14px] font-display font-black uppercase tracking-widest text-z-ink">Summary</h2>
-                </div>
-                <div className="space-y-3 mb-8">
-                  {cart.map((item) => (
-                    <div key={item.cartItemId} className="flex justify-between font-mono text-[11px] text-z-muted uppercase">
-                      <span className="truncate max-w-[140px]">{item.title}</span>
-                      <span className="text-z-ink font-bold whitespace-nowrap">&#8377;{item.price.toLocaleString()} &times; {item.quantity} = &#8377;{(item.price * item.quantity).toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="space-y-6 mb-12 border-t-2 border-z-border pt-6">
-                  <div className="flex justify-between font-mono text-[13px] font-bold text-z-muted uppercase">
-                    <span>Subtotal:</span>
-                    <span className="text-z-ink tracking-widest font-black">&#8377;{total.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between font-mono text-[13px] font-bold text-z-muted uppercase">
-                    <span>Shipping:</span>
-                    <span className="text-z-ink  ">FREE</span>
-                  </div>
-                  <div className="border-t-2 border-z-border pt-8 flex justify-between items-baseline">
-                    <span className="font-display font-black text-2xl uppercase tracking-tighter">Total:</span>
-                    <span className="font-display font-black text-5xl text-z-ink tracking-tighter  ">&#8377;{total.toLocaleString()}</span>
+            <div className="mt-4 h-2 bg-z-border overflow-hidden">
+              <div
+                className="h-full bg-z-ink transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            {group.freeQuantity > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate('/collection', {
+                      state: {
+                        promotionSelection: {
+                          size: group.size,
+                          promotionId: promotion.id,
+                          quantity: group.freeQuantity,
+                        },
+                      },
+                    })
+                  }
+                  className="mt-5 w-full sm:w-auto sticker-btn bg-z-ink text-z-paper px-6 py-3"
+                >
+                  CHOOSE {group.freeQuantity} FREE POSTERS
+                </button>
+)}
+
+            <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                {hasUnlockedReward ? (
+                  <>
+                    <p className="font-display font-black text-xl uppercase">
+                      {group.freeQuantity} FREE POSTERS UNLOCKED!
+                    </p>
+
+                    <p className="font-mono text-[10px] text-z-muted uppercase mt-1">
+                      {group.addedFreeQuantity} / {group.freeQuantity} FREE POSTERS ADDED
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-display font-black text-lg uppercase">
+                      Add {remainingToNextTier} more posters
+                    </p>
+
+                    <p className="font-mono text-[10px] text-z-muted uppercase mt-1">
+                      Unlock {promotion.free_quantity} free posters
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <span
+                className={`font-mono text-xs font-black uppercase ${
+                  hasUnlockedReward ? "text-green-600" : "text-z-muted"
+                }`}
+              >
+                {hasUnlockedReward
+                  ? `${completedTiers} REWARD TIER${completedTiers > 1 ? "S" : ""} UNLOCKED`
+                  : "KEEP SHOPPING"}
+              </span>
+            </div>
+
+            
+          </div>
+        );
+      })}
+    </div>
+  )}
+
+  {step === 'cart' && (
+  <div className="grid grid-cols-1 lg:grid-cols-12 gap-20">
+
+    {/* Cart products */}
+    <div className="lg:col-span-8 space-y-12">
+      {cart.map((item) => (
+        <div
+          key={item.cartItemId}
+          className="flex flex-col sm:flex-row space-y-6 sm:space-y-0 sm:space-x-10 pb-12 border-b-2 border-z-border last:border-0 group"
+        >
+          <div className="polaroid w-40 h-52 shrink-0 group-hover:-rotate-2 transition-transform bg-z-paper">
+            <div className="tape -top-2 -left-4 w-16" />
+
+            <img
+              src={item.image}
+              alt={item.title}
+              className="w-full h-full object-cover"
+            />
+          </div>
+
+          <div className="flex-1 flex flex-col justify-between pt-4">
+            <div>
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="font-display font-black text-4xl uppercase tracking-tighter leading-none text-z-ink">
+                    {item.title}
+                  </h3>
+
+                  <div className="mt-3 flex items-center flex-wrap gap-2">
+                    <span className="text-[11px] font-mono font-black uppercase text-z-paper bg-z-ink px-3 py-1">
+                      SIZE: {item.size}
+                    </span>
+
+                    <span className="text-[11px] font-mono font-bold uppercase text-z-muted">
+                      COLLECTION: {item.collection}
+                    </span>
                   </div>
                 </div>
 
-                {profileError && (
-                        <div className="mt-4 border-2 border-red-400 bg-red-50 p-5">
-                          <p className="text-sm font-mono font-bold text-red-700">
-                            {profileError}
-                          </p>
-
-                          {profileError.toLowerCase().includes('address') && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                navigate('/dashboard', {
-                                  state: { activeTab: 'addresses' },
-                                })
-                              }
-                              className="mt-4 sticker-btn bg-z-ink text-z-paper"
-                            >
-                              ADD DELIVERY ADDRESS
-                            </button>
-                          )}
-                        </div>
-                      )}
-
-                <button onClick={handleProceedToAddress} className="w-full sticker-btn py-5 text-sm bg-z-ink text-z-paper text-center">
-                  PROCEED TO CHECKOUT
+                <button
+                  onClick={() => removeFromCart(item.cartItemId)}
+                  className="bg-z-paper border-2 border-z-border p-3 text-z-ink hover:bg-z-ink hover:text-z-paper transition-all"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
-            </aside>
+
+              {item.customSpecs && (
+                <div className="mt-4 p-4 border-2 border-dashed border-z-border bg-z-paper">
+                  <span className="text-[9px] font-mono font-black uppercase text-z-muted tracking-widest">
+                    SPECS: {item.customSpecs.size} /
+                    {item.customSpecs.layout || 'Single'} /
+                    {item.customSpecs.printStyle || 'full-bleed'}
+                    {item.customSpecs.frame &&
+                      item.customSpecs.frame !== 'None' &&
+                      ` / ${item.customSpecs.frame} Frame`}
+                    {item.customSpecs.material &&
+                      item.customSpecs.material !== 'PAPER POSTER' &&
+                      ` / ${item.customSpecs.material}`}
+                  </span>
+                </div>
+              )}
+
+              <p className="text-z-ink mt-8 font-display font-black text-2xl tracking-tighter">
+                {item.promotionFree ? (
+                  <span className="text-green-600">FREE</span>
+                ) : (
+                  `₹${(item.price * item.quantity).toLocaleString()}`
+                )}
+              </p>
+
+              {item.quantity > 1 && (
+                <p className="text-[10px] font-mono text-z-muted mt-1">
+                  ₹{item.price.toLocaleString()} × {item.quantity}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center space-x-6 mt-8">
+              <label className="text-[12px] font-mono uppercase text-z-muted font-black">
+                Qty:
+              </label>
+
+              <div className="flex items-center border-2 border-z-border font-display font-bold">
+                <button
+                  onClick={() =>
+                    updateQuantity(item.cartItemId, item.quantity - 1)
+                  }
+                  className="px-6 py-3 hover:bg-z-ink hover:text-z-paper"
+                >
+                  -
+                </button>
+
+                <span className="px-6 py-3 border-x-2 border-z-border">
+                  {item.quantity}
+                </span>
+
+                <button
+                  onClick={() =>
+                    updateQuantity(item.cartItemId, item.quantity + 1)
+                  }
+                  className="px-6 py-3 hover:bg-z-ink hover:text-z-paper"
+                >
+                  +
+                </button>
+              </div>
+            </div>
           </div>
+        </div>
+      ))}
+    </div>
+
+    {/* Cart summary */}
+    <aside className="lg:col-span-4">
+      <div className="bg-z-paper p-10 border-2 border-z-border sticky top-40">
+        <h2 className="text-[14px] font-display font-black uppercase tracking-widest mb-8 border-b-2 border-z-border pb-4">
+          Order Summary
+        </h2>
+
+        <div className="space-y-4 mb-8">
+          {cart.map((item) => (
+            <div
+              key={item.cartItemId}
+              className="flex justify-between font-mono text-[11px] text-z-muted uppercase"
+            >
+              <span>{item.title}</span>
+              <span className="text-z-ink font-bold">
+                ₹{(item.price * item.quantity).toLocaleString()}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t-2 border-z-border pt-6">
+          <div className="flex justify-between font-mono text-sm font-bold">
+            <span>Subtotal:</span>
+            <span>₹{total.toLocaleString()}</span>
+          </div>
+
+          <div className="flex justify-between font-mono text-sm font-bold mt-4">
+            <span>Shipping:</span>
+            <span>FREE</span>
+          </div>
+
+          <div className="border-t-2 border-z-border mt-6 pt-6 flex justify-between items-baseline">
+            <span className="font-display font-black text-2xl uppercase">
+              Total:
+            </span>
+
+            <span className="font-display font-black text-4xl">
+              ₹{total.toLocaleString()}
+            </span>
+          </div>
+        </div>
+
+        {profileError && (
+          <p className="text-sm text-red-600 mt-4">{profileError}</p>
         )}
+
+        <button
+          onClick={handleProceedToAddress}
+          className="w-full sticker-btn py-5 text-sm bg-z-ink text-z-paper mt-8"
+        >
+          PROCEED TO CHECKOUT
+        </button>
+      </div>
+    </aside>
+  </div>
+)}
 
         {step === 'address' && (
           <div className="max-w-2xl mx-auto">

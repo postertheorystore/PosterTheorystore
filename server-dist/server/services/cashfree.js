@@ -57,14 +57,14 @@ async function cfFetch(path, init = {}) {
 }
 export const createCashfreeOrder = async (input) => {
     const frontendUrl = (process.env.FRONTEND_URL || "").replace(/\/+$/, "");
-    if (!frontendUrl)
+    if (!frontendUrl) {
         throw new CashfreeConfigError("FRONTEND_URL is not set");
+    }
     const publicBackend = (process.env.BACKEND_PUBLIC_URL || "").replace(/\/+$/, "");
     const orderMeta = {
-        // Cashfree substitutes {order_id} with the real order id on redirect.
-        return_url: `${frontendUrl}/payment?cf_order_id={order_id}`,
+        return_url: `${frontendUrl}/payment?order_id={order_id}`,
     };
-    // Cashfree only accepts https webhooks. Skipped on plain-http local dev.
+    // Cashfree requires HTTPS webhook URLs.
     if (publicBackend.startsWith("https://")) {
         orderMeta.notify_url = `${publicBackend}/api/payments/webhook`;
     }
