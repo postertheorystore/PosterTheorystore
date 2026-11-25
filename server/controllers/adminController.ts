@@ -250,11 +250,18 @@ export const deleteSize = async (req: Request, res: Response) => {
 // ========== PRICING ==========
 export const getPricing = async (req: Request, res: Response) => {
   const { rows } = await pool.query(`
-    SELECT p.id, p.price, s.name as size_name, s.id as size_id, l.name as layout_name, l.id as layout_id
-    FROM pricing p
-    JOIN sizes s ON p.size_id = s.id
-    JOIN layouts l ON p.layout_id = l.id
-    ORDER BY s.width_mm DESC, l.panel_count
+    SELECT
+  p.id,
+  p.price,
+  p.promotional_price,
+  s.name AS size_name,
+  s.id AS size_id,
+  l.name AS layout_name,
+  l.id AS layout_id
+FROM pricing p
+JOIN sizes s ON p.size_id = s.id
+JOIN layouts l ON p.layout_id = l.id
+ORDER BY s.width_mm DESC, l.panel_count
   `);
   res.json(rows);
 };
@@ -263,18 +270,65 @@ export const upsertPricing = async (req: Request, res: Response) => {
   const size_id = validatePositiveInt(req.body.size_id);
   const layout_id = validatePositiveInt(req.body.layout_id);
   const price = validatePositiveInt(req.body.price);
-  if (!size_id) return res.status(400).json({ error: "Valid size is required" });
-  if (!layout_id) return res.status(400).json({ error: "Valid layout is required" });
-  if (!price || price > 100000) return res.status(400).json({ error: "Price must be between 1-100000" });
+
+  const promotional_price =
+    req.body.promotional_price === undefined ||
+    req.body.promotional_price === null ||
+    req.body.promotional_price === ""
+      ? null
+      : Number(req.body.promotional_price);
+
+  if (!size_id) {
+    return res.status(400).json({ error: "Valid size is required" });
+  }
+
+  if (!layout_id) {
+    return res.status(400).json({ error: "Valid layout is required" });
+  }
+
+  if (!price || price > 100000) {
+    return res.status(400).json({
+      error: "Price must be between 1-100000",
+    });
+  }
+
+  if (
+    promotional_price !== null &&
+    (!Number.isFinite(promotional_price) ||
+      promotional_price < 0 ||
+      promotional_price > 1000000)
+  ) {
+    return res.status(400).json({
+      error: "Invalid promotional price",
+    });
+  }
+
   try {
-    const { rows } = await pool.query(`
-      INSERT INTO pricing (size_id, layout_id, price) VALUES ($1, $2, $3)
-      ON CONFLICT (size_id, layout_id) DO UPDATE SET price = $3
-      RETURNING *
-    `, [size_id, layout_id, price]);
+    const { rows } = await pool.query(
+      `
+        INSERT INTO pricing (
+          size_id,
+          layout_id,
+          price,
+          promotional_price
+        )
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (size_id, layout_id)
+        DO UPDATE SET
+          price = EXCLUDED.price,
+          promotional_price = EXCLUDED.promotional_price
+        RETURNING *
+      `,
+      [size_id, layout_id, price, promotional_price]
+    );
+
     res.json(rows[0]);
   } catch (err) {
-    res.status(500).json({ error: "Failed to update pricing" });
+    console.error("Failed to update pricing:", err);
+
+    res.status(500).json({
+      error: "Failed to update pricing",
+    });
   }
 };
 
@@ -298,6 +352,8 @@ export const getAdminProducts = async (req: Request, res: Response) => {
   `);
   res.json(rows);
 };
+
+
 
 export const getProductStats = async (req: Request, res: Response) => {
   const prodId = parseInt(req.params.id, 10);

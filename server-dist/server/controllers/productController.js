@@ -5,7 +5,16 @@ const productPriceSQL = `
     FROM pricing pr
     WHERE pr.size_id = ANY(p.available_sizes)
       AND pr.layout_id = ANY(p.available_layouts)
-  ) AS price
+  ) AS price,
+
+  (
+    SELECT pr.promotional_price
+    FROM pricing pr
+    WHERE pr.size_id = ANY(p.available_sizes)
+      AND pr.layout_id = ANY(p.available_layouts)
+    ORDER BY pr.price ASC
+    LIMIT 1
+  ) AS promotional_price
 `;
 export const getProducts = async (req, res) => {
     try {
@@ -72,7 +81,7 @@ export const getCategoryPricing = async (req, res) => {
 export const getProductPricing = async (req, res) => {
     try {
         const { rows } = await pool.query(`
-      SELECT p.id, p.price, s.name as size_name, s.id as size_id, l.name as layout_name, l.id as layout_id
+      SELECT p.id, p.price, p.promotional_price, s.name as size_name, s.id as size_id, l.name as layout_name, l.id as layout_id
       FROM pricing p
       JOIN sizes s ON p.size_id = s.id
       JOIN layouts l ON p.layout_id = l.id
@@ -91,7 +100,7 @@ export const getCustomizeConfig = async (req, res) => {
             pool.query("SELECT * FROM sizes WHERE is_active = true ORDER BY width_mm DESC"),
             pool.query("SELECT * FROM layouts WHERE is_active = true ORDER BY panel_count"),
             pool.query(`
-    SELECT p.price, s.name AS size_name, l.name AS layout_name
+    SELECT p.price,p.promotional_price, s.name AS size_name, l.name AS layout_name
     FROM pricing p
     JOIN sizes s ON p.size_id = s.id
     JOIN layouts l ON p.layout_id = l.id
@@ -182,12 +191,21 @@ export const getSimilarProducts = async (req, res) => {
         c.name AS collection_name,
         c.slug AS collection_slug,
 
-        (
-          SELECT MIN(pr.price)
-          FROM pricing pr
-          WHERE pr.size_id = ANY(p.available_sizes)
-            AND pr.layout_id = ANY(p.available_layouts)
-        ) AS price
+       (
+      SELECT MIN(pr.price)
+      FROM pricing pr
+      WHERE pr.size_id = ANY(p.available_sizes)
+        AND pr.layout_id = ANY(p.available_layouts)
+    ) AS price,
+
+    (
+      SELECT pr.promotional_price
+      FROM pricing pr
+      WHERE pr.size_id = ANY(p.available_sizes)
+        AND pr.layout_id = ANY(p.available_layouts)
+      ORDER BY pr.price ASC
+      LIMIT 1
+    ) AS promotional_price
 
       FROM products p
 

@@ -26,6 +26,15 @@ export interface CategoryPriceEntry {
   width_mm: number;
   height_mm: number;
   price: number;
+  
+}
+export interface PricingEntry {
+  size_id: number;
+  layout_id: number;
+  size_name: string;
+  layout_name: string;
+  price: number;
+  promotional_price: number | null;
 }
 
 
@@ -39,6 +48,7 @@ export function useCustomizeConfig() {
   const [portraitOnly, setPortraitOnly] = useState<string[]>(PORTRAIT_ONLY_SIZES);
   const [framePricing, setFramePricing] = useState<FramePriceEntry[]>([]);
   const [materialPricing, setMaterialPricing] = useState<MaterialPriceEntry[]>([]);
+  const [pricingEntries, setPricingEntries] = useState<PricingEntry[]>([]);
   const [categoryPricing, setCategoryPricing] =
   useState<CategoryPriceEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,9 +71,11 @@ export function useCustomizeConfig() {
         }
         if (dbLayouts && dbLayouts.length > 0) setLayouts(dbLayouts);
         if (pricing.length > 0) {
-          setSizePrices(buildSizePrices(pricing));
-          setLayoutPrices(buildLayoutPrices(pricing));
-        }
+        setPricingEntries(pricing as PricingEntry[]);
+
+        setSizePrices(buildSizePrices(pricing));
+        setLayoutPrices(buildLayoutPrices(pricing));
+      }
         if (fp) setFramePricing(fp);
         if (mp) setMaterialPricing(mp);
         if (cp) setCategoryPricing(cp);
@@ -74,5 +86,5 @@ export function useCustomizeConfig() {
       .finally(() => setLoading(false));
   }, []);
 
-  return { sizes, layouts, paperSizes, customMargins, sizePrices, layoutPrices, portraitOnly, framePricing, materialPricing, categoryPricing, loading };
+  return { sizes, layouts, paperSizes, customMargins, sizePrices, layoutPrices, portraitOnly, framePricing, materialPricing, categoryPricing,pricingEntries, loading };
 }

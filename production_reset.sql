@@ -43,3 +43,20 @@ VALUES (
 ON CONFLICT (id) DO NOTHING;
 
 COMMIT;
+
+
+CREATE TABLE reviews (
+    id SERIAL PRIMARY KEY,
+    customer_name VARCHAR(150) NOT NULL,
+    review_text TEXT NOT NULL,
+    rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    image_url TEXT,
+    span VARCHAR(20) NOT NULL DEFAULT 'short'
+        CHECK (span IN ('short', 'tall', 'wide')),
+    status VARCHAR(20) NOT NULL DEFAULT 'published'
+        CHECK (status IN ('draft', 'published', 'hidden')),
+    source VARCHAR(20) NOT NULL DEFAULT 'admin'
+        CHECK (source IN ('admin', 'customer')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

@@ -10,7 +10,7 @@ export default function PricingTab({ token }: { token: string | null }) {
   const [sizes, setSizes] = useState<any[]>([]);
   const [layouts, setLayouts] = useState<any[]>([]);
   const [collections, setCollections] = useState<any[]>([]);
-  const [editPrice, setEditPrice] = useState<{ size_id: number; layout_id: number; price: string } | null>(null);
+  const [editPrice, setEditPrice] = useState<{ size_id: number; layout_id: number; price: string; promotional_price: string; } | null>(null);
   const [newCat, setNewCat] = useState('');
   const [editCat, setEditCat] = useState<{ id: number; name: string } | null>(null);
   const [newSize, setNewSize] = useState({ name: '', width_mm: '', height_mm: '', margin_top: '10', margin_bottom: '10', margin_left: '10', margin_right: '10' });
@@ -68,14 +68,39 @@ export default function PricingTab({ token }: { token: string | null }) {
   const { loading: layoutLoading, run: runLayout } = useAction();
 
   const savePrice = async () => {
-    if (!editPrice) return;
-    const price = editPrice;
-    setEditPrice(null);
-    await runPricing(async () => {
-      await api.post('/api/admin/pricing', { size_id: price.size_id, layout_id: price.layout_id, price: parseInt(price.price) }, h(token));
-      await reload();
-    });
-  };
+  if (!editPrice) return;
+
+  const draft = editPrice;
+
+  if (!draft.price || Number(draft.price) <= 0) return;
+
+  if (
+    draft.promotional_price !== '' &&
+    Number(draft.promotional_price) < 0
+  ) {
+    return;
+  }
+
+  setEditPrice(null);
+
+  await runPricing(async () => {
+    await api.post(
+      '/api/admin/pricing',
+      {
+        size_id: draft.size_id,
+        layout_id: draft.layout_id,
+        price: Number(draft.price),
+        promotional_price:
+          draft.promotional_price === ''
+            ? null
+            : Number(draft.promotional_price),
+      },
+      h(token)
+    );
+
+    await reload();
+  });
+};
 
   const deletePrice = async (sizeId: number, layoutId: number) => {
     await runPricing(async () => {
@@ -166,34 +191,126 @@ export default function PricingTab({ token }: { token: string | null }) {
                   {layouts.map(l => {
                     const price = getPrice(s.id, l.id);
                     const isEditing = editPrice?.size_id === s.id && editPrice?.layout_id === l.id;
+                    const promotionalPrice = pricing.find(
+                      p => Number(p.size_id) === Number(s.id) &&
+                          Number(p.layout_id) === Number(l.id)
+                    )?.promotional_price;
                     return (
-                      <td key={l.id} className="px-4 py-3 text-center">
-                        {isEditing ? (
-                          <div className="flex items-center gap-1 justify-center">
-                            <span className="text-z-muted">₹</span>
-                            <input value={editPrice!.price} onChange={e => setEditPrice({...editPrice!, price: e.target.value.replace(/\D/g, '')})} 
-                              className={`w-20 ${inputClsLg} border-z-orange text-center font-black`} autoFocus 
-                              onKeyDown={e => { if (e.key === 'Enter') savePrice(); if (e.key === 'Escape') setEditPrice(null); }} />
-                            <button onClick={savePrice} disabled={pricingLoading} className="p-1.5 bg-green-100 dark:bg-green-900/30 border border-green-400 hover:bg-green-200 active:scale-90 transition-transform disabled:opacity-50">{pricingLoading ? <Spinner /> : <Check className="w-4 h-4 text-green-700 dark:text-green-400" />}</button>
-                            <button onClick={() => setEditPrice(null)} className="p-1.5 bg-red-50 dark:bg-red-900/30 border border-red-300 hover:bg-red-100 active:scale-90 transition-transform"><X className="w-4 h-4 text-red-500" /></button>
-                          </div>
-                        ) : price ? (
-                          <div className="flex items-center justify-center gap-1 group">
-                            <button onClick={() => setEditPrice({ size_id: s.id, layout_id: l.id, price: String(price) })} 
-                              className="font-black text-z-orange hover:bg-z-orange hover:text-white px-3 py-1.5 transition-all text-[13px]">
-                              ₹{price.toLocaleString()}
-                            </button>
-                            <button onClick={() => deletePrice(s.id, l.id)} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 dark:hover:bg-red-900/30 transition-all" title="Remove price">
-                              <Trash2 className="w-4 h-4 text-red-400" />
-                            </button>
-                          </div>
-                        ) : (
-                          <button onClick={() => setEditPrice({ size_id: s.id, layout_id: l.id, price: '' })} 
-                            className="text-z-muted hover:text-z-orange px-3 py-1.5 transition-all border border-dashed border-z-border/30 hover:border-z-orange text-[11px]">
-                            + Add
-                          </button>
-                        )}
-                      </td>
+                     <td key={l.id} className="px-4 py-3 text-center">
+  {isEditing ? (
+    <div className="flex flex-col items-center gap-2">
+      {/* Actual selling price */}
+      <div className="flex items-center gap-1">
+        <span className="text-z-muted">₹</span>
+
+        <input
+          value={editPrice!.price}
+          onChange={e =>
+            setEditPrice({
+              ...editPrice!,
+              price: e.target.value.replace(/\D/g, ''),
+            })
+          }
+          className={`w-20 ${inputClsLg} border-z-orange text-center font-black`}
+          placeholder="Price"
+          autoFocus
+        />
+      </div>
+
+      {/* Promotional strike-through price */}
+      <div className="flex items-center gap-1">
+        <span className="text-z-muted line-through">₹</span>
+
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={editPrice!.promotional_price}
+          onChange={e =>
+            setEditPrice({
+              ...editPrice!,
+              promotional_price: e.target.value,
+            })
+          }
+          className={`w-20 ${inputClsLg} border-z-orange/40 text-center`}
+          placeholder="Promo"
+          title="Promotional display price"
+        />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={savePrice}
+          disabled={pricingLoading}
+          className="p-1.5 bg-green-100 dark:bg-green-900/30 border border-green-400"
+        >
+          {pricingLoading ? (
+            <Spinner />
+          ) : (
+            <Check className="w-4 h-4 text-green-700 dark:text-green-400" />
+          )}
+        </button>
+
+        <button
+          onClick={() => setEditPrice(null)}
+          className="p-1.5 bg-red-50 dark:bg-red-900/30 border border-red-300"
+        >
+          <X className="w-4 h-4 text-red-500" />
+        </button>
+      </div>
+    </div>
+  ) : price ? (
+    <div className="flex items-center justify-center gap-1 group">
+      <button
+        onClick={() =>
+          setEditPrice({
+            size_id: s.id,
+            layout_id: l.id,
+            price: String(price),
+            promotional_price:
+              promotionalPrice != null
+                ? String(promotionalPrice)
+                : '',
+          })
+        }
+        className="font-black text-z-orange hover:bg-z-orange hover:text-white px-3 py-1.5 transition-all text-[13px]"
+      >
+        <span className="flex flex-col items-center">
+          <span>₹{Number(price).toLocaleString('en-IN')}</span>
+
+          {promotionalPrice != null &&
+            Number(promotionalPrice) > Number(price) && (
+              <span className="text-[10px] text-z-muted line-through">
+                ₹{Number(promotionalPrice).toLocaleString('en-IN')}
+              </span>
+            )}
+        </span>
+      </button>
+
+      <button
+        onClick={() => deletePrice(s.id, l.id)}
+        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 dark:hover:bg-red-900/30 transition-all"
+        title="Remove price"
+      >
+        <Trash2 className="w-4 h-4 text-red-400" />
+      </button>
+    </div>
+  ) : (
+    <button
+      onClick={() =>
+        setEditPrice({
+          size_id: s.id,
+          layout_id: l.id,
+          price: '',
+          promotional_price: '',
+        })
+      }
+      className="text-z-muted hover:text-z-orange px-3 py-1.5 transition-all border border-dashed border-z-border/30 hover:border-z-orange text-[11px]"
+    >
+      + Add
+    </button>
+  )}
+</td>
                     );
                   })}
                 </tr>

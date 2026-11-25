@@ -9,6 +9,7 @@ interface ProductProps {
   id: number;
   title: string;
   price?: number;
+  promotional_price?: number | string | null;
   image: string;
   collection?: string;
   collection_name?: string;
@@ -36,6 +37,7 @@ export default function ProductCard({
     id,
     title,
     price,
+    promotional_price,
     image,
     collection_name,
     layout,
@@ -50,6 +52,13 @@ export default function ProductCard({
 
   const liked = isFavourite(id);
   const displayPrice = price;
+  const promotionalPrice = Number(promotional_price);
+
+  const hasPromotionalPrice =
+    displayPrice != null &&
+    promotional_price != null &&
+    Number.isFinite(promotionalPrice) &&
+    promotionalPrice > Number(displayPrice);
 
   const hasFrame = frameColor === "black" || frameColor === "white";
 
@@ -181,14 +190,16 @@ export default function ProductCard({
 
           {/* Price + Action */}
           <div className="flex items-end justify-between gap-3 mt-4">
-            <div>
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <p className="font-display font-black text-lg sm:text-xl text-z-ink leading-none">
-                {displayPrice != null ? `From ₹${displayPrice}` : "Price unavailable"}
+                {displayPrice != null
+                  ? `From ₹${displayPrice}`
+                  : "Price unavailable"}
               </p>
 
-              {available_sizes && available_sizes.length > 0 && (
-                <p className="text-[8px] font-mono uppercase tracking-[0.12em] text-z-muted mt-1">
-                  {available_sizes.length} sizes
+              {hasPromotionalPrice && (
+                <p className="font-mono text-xs text-z-muted line-through">
+                  ₹{promotionalPrice}
                 </p>
               )}
             </div>

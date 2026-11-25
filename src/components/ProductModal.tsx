@@ -195,7 +195,7 @@ function ProductDetails({
   };
 }) {
   const { addToCart } = useCart();
-  const { sizes, layouts, sizePrices, portraitOnly, framePricing, materialPricing,categoryPricing } = config;
+  const { sizes, layouts, sizePrices, portraitOnly, framePricing, materialPricing,categoryPricing,pricingEntries } = config;
 
   const [similarProducts, setSimilarProducts] = useState<any[]>([]);
   const [similarLoading, setSimilarLoading] = useState(false);
@@ -358,6 +358,24 @@ const selectedSizeObj = sizes.find(
   (s) => s.name === selectedSize
 );
 
+const selectedPricingEntry = pricingEntries.find(
+  (entry) =>
+    entry.size_name === selectedSize &&
+    entry.layout_name === selectedLayout
+);
+
+const originalPromotionalPrice = Number(
+  selectedPricingEntry?.price
+);
+
+
+const promotionalPrice =
+  selectedPricingEntry?.promotional_price != null
+    ? Number(selectedPricingEntry.promotional_price)
+    : null;
+
+
+
 const categoryPrice = categoryPricing.find(
   (item) =>
     item.category === (withFrame ? 'framed_photo' : 'print_only') &&
@@ -390,6 +408,15 @@ const isFreeRewardSelection =
 
 const displayPrice = isFreeRewardSelection ? 0 : price;
 
+const hasPromotionalPrice =
+  !isFreeRewardSelection &&
+  promotionalPrice !== null &&
+  Number.isFinite(promotionalPrice) &&
+  Number.isFinite(originalPromotionalPrice) &&
+  promotionalPrice > 0 &&
+  originalPromotionalPrice > promotionalPrice;
+
+
   const nextImg = () => setCurrentImg((prev) => (prev + 1) % images.length);
   const prevImg = () => setCurrentImg((prev) => (prev - 1 + images.length) % images.length);
 
@@ -397,14 +424,7 @@ const displayPrice = isFreeRewardSelection ? 0 : price;
   const selectedSizeObj = sizes.find(
     (s) => s.name === selectedSize
   );
-  console.log("PROMOTION DEBUG:", {
-  selectedSize,
-  selectedMaterial,
-  withFrame,
-  priceCategory: withFrame ? "framed_photo" : "print_only",
-  sizeId: selectedSizeObj?.id,
-  quantity,
-});
+
 
 addToCart({
   id: product.id,
@@ -449,6 +469,11 @@ addToCart({
   // The priced material list (shown with a frame) replaces the simple toggle, so only one is visible
   const showPricedMaterials = !isNoFrame && withFrame && materialPricing.length > 0;
   const total = displayPrice * quantity;
+  const displayUnitPrice = hasPromotionalPrice
+  ? promotionalPrice + materialExtra
+  : displayPrice;
+
+const displayTotal = displayUnitPrice * quantity;
 
   return (
     <>
@@ -538,28 +563,43 @@ addToCart({
                 {product.title}
               </h2>
               <div className="mt-3 flex items-baseline gap-2 flex-wrap">
-                <motion.span
-                  key={price}
-                  initial={{ y: 8, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  className="font-display font-black text-3xl text-z-ink"
-                >
-                 {isFreeRewardSelection ? (
-                      <span className="flex items-baseline gap-2">
-                        <span className="text-green-600">FREE</span>
-                        <span className="text-sm line-through text-z-muted">
-                          ₹{price}
-                        </span>
-                      </span>
-                    ) : (
-                      <>₹{price}</>
+  {isFreeRewardSelection ? (
+    <>
+      <span className="font-display font-black text-3xl text-green-600">
+        FREE
+      </span>
+
+      <span className="text-sm line-through text-z-muted">
+        ₹{price}
+      </span>
+    </>
+  ) : hasPromotionalPrice ? (
+    <>
+      <span className="font-display font-black text-3xl text-green-600">
+        ₹{promotionalPrice}
+      </span>
+
+      <span className="text-lg line-through text-z-muted">
+        ₹{originalPromotionalPrice}
+      </span>
+    </>
+  ) : (
+    <span className="font-display font-black text-3xl text-z-ink">
+      ₹{price}
+    </span>
+  )}
+
+  <span className="text-[9px] font-mono uppercase text-z-muted">
+    {selectedSize} · {selectedLayout}
+    {panelCount > 1 ? ` · ${panelCount} panels` : ""}
+  </span>
+</div>
+
+{hasPromotionalPrice && !isFreeRewardSelection && (
+  <p className="mt-1 text-[9px] font-mono uppercase tracking-wider text-green-600">
+    Promotional price · Display only
+  </p>
 )}
-                </motion.span>
-                <span className="text-[9px] font-mono uppercase text-z-muted">
-                  {selectedSize} · {selectedLayout}
-                  {panelCount > 1 ? ` · ${panelCount} panels` : ''}
-                </span>
-              </div>
             </motion.div>
 
             {/* Frame (first, because it filters the available sizes) */}
@@ -735,8 +775,24 @@ addToCart({
               className="mt-5 border-2 border-z-border p-4 space-y-1.5 shadow-[4px_4px_0px_0px_var(--color-z-shadow)]"
             >
               <p className="text-[9px] font-mono font-black uppercase tracking-widest text-z-ink mb-2">Price Breakdown</p>
-              <div className="flex justify-between text-[10px] font-mono text-z-muted uppercase">
-                <span>Size ({selectedSize})</span><span>&#8377;{sizeBasePrice}</span>
+              <div className="flex justify-between items-center text-[10px] font-mono text-z-muted uppercase">
+                <span>Size ({selectedSize})</span>
+
+                <span className="flex items-center gap-2">
+                  {hasPromotionalPrice ? (
+                    <>
+                      <span className="line-through opacity-60">
+                        ₹{sizeBasePrice}
+                      </span>
+
+                      <span className="font-bold text-green-600">
+                        ₹{promotionalPrice}
+                      </span>
+                    </>
+                  ) : (
+                    <span>₹{sizeBasePrice}</span>
+                  )}
+                </span>
               </div>
               {!isNoFrame && frameCost > 0 && (
                 <div className="flex justify-between text-[10px] font-mono text-z-muted uppercase">
@@ -760,7 +816,7 @@ addToCart({
               )}
               <div className="flex justify-between items-baseline text-[10px] font-mono text-z-muted uppercase border-t border-z-border/30 pt-2">
                 <span>× {quantity} qty</span>
-                <span className="text-lg font-display font-black text-z-ink">&#8377;{total}</span>
+                <span className="text-lg font-display font-black text-z-ink">&#8377;{displayTotal}</span>
               </div>
             </motion.div>
           </motion.div>

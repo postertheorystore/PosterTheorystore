@@ -76,7 +76,7 @@ export default function PostersTab({ token }: { token: string | null }) {
   }, []);
 
   function emptyForm() {
-    return { title: '', description: '', collection_id: '', tags: '', orientation: 'portrait' as string, available_sizes: [] as number[], available_layouts: [] as number[], frame_options: ['no_frame', 'with_frame'] as string[], status: 'active', is_featured: false, is_trending: false, is_new_arrival: true, is_bestseller: false };
+    return { title: '', description: '', collection_id: '', tags: '', orientation: 'portrait' as string, available_sizes: [] as number[], available_layouts: [] as number[], frame_options: ['no_frame', 'with_frame'] as string[], status: 'active', is_featured: false, is_trending: false, is_new_arrival: true, is_bestseller: false  ,compare_at_price: '', show_discount: false,};
   }
 
   useEffect(() => {
@@ -227,6 +227,7 @@ export default function PostersTab({ token }: { token: string | null }) {
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input label="Title" value={form.title} onChange={v => setForm({...form, title: v})} required />
             <Input label="Description" value={form.description} onChange={v => setForm({...form, description: v})} />
+            
             
             <div>
               <Label>Collection</Label>
